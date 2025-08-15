@@ -131,7 +131,7 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- 1) Plain script: attaches Record/Pause/Stop, timeline, camera buttons (works even if Three.js fails) -->
+<!-- Plain script: record/pause/stop + cameras -->
 <script>
   console.log("monitor: plain script loaded");
 
@@ -148,97 +148,31 @@
   const durEl     = document.getElementById('dur');
   const seek      = document.getElementById('seek');
 
-  let state = 'idle';           // 'idle' | 'recording' | 'paused' | 'playback'
-  let startMs = 0, totalMs = 0; // elapsed accumulator
-  let tick;
+  let state = 'idle', startMs = 0, totalMs = 0, tick;
+  const fmt = (ms)=>{ const s=ms/1000,m=Math.floor(s/60),r=(s-m*60).toFixed(1).padStart(4,'0'); return `${String(m).padStart(2,'0')}:${r}`; };
+  function setState(n){ state=n; const recLike=(n==='recording'||n==='paused'); btnPause.disabled=!recLike; btnStop.disabled=!recLike; recBadge.classList.toggle('hidden', n!=='recording'); btnPause.textContent=n==='paused'?'Resume':'Pause'; btnRecord.textContent=n==='recording'?'● Recording':'● Record'; }
+  function startTicker(){ clearInterval(tick); tick=setInterval(()=>{ let e=totalMs; if(state==='recording') e+=performance.now()-startMs; timerEl.textContent=fmt(e); if(state!=='recording') return; seek.max=Math.max(seek.max,Math.round(e)); seek.value=Math.round(e); curEl.textContent=fmt(+seek.value); durEl.textContent=fmt(+seek.max);},50); }
+  btnRecord.addEventListener('click', ()=>{ if(state==='idle'||state==='playback'){ totalMs=0; startMs=performance.now(); setState('recording'); startTicker(); }});
+  btnPause.addEventListener('click', ()=>{ if(state==='recording'){ totalMs+=performance.now()-startMs; setState('paused'); } else if(state==='paused'){ startMs=performance.now(); setState('recording'); }});
+  btnStop.addEventListener('click', ()=>{ if(state==='recording') totalMs+=performance.now()-startMs; clearInterval(tick); setState('playback'); seek.max=totalMs||1; seek.value=0; curEl.textContent=fmt(0); durEl.textContent=fmt(totalMs); timerEl.textContent=fmt(totalMs); });
+  seek.addEventListener('input', ()=>{ if(state==='playback'||state==='paused') curEl.textContent=fmt(+seek.value); });
+  window.addEventListener('keydown',(e)=>{ if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if(e.code==='KeyR'){btnRecord.click();e.preventDefault();} if(e.code==='Space'){btnPause.click();e.preventDefault();} });
 
-  function fmt(ms){
-    const s = ms / 1000, m = Math.floor(s / 60);
-    const rest = (s - m*60).toFixed(1).padStart(4,'0');
-    return `${String(m).padStart(2,'0')}:${rest}`;
-  }
-  function setState(next){
-    state = next;
-    const recLike = (state === 'recording' || state === 'paused');
-    btnPause.disabled = !recLike;
-    btnStop.disabled  = !recLike;
-    recBadge.classList.toggle('hidden', state !== 'recording');
-    btnPause.textContent = state === 'paused' ? 'Resume' : 'Pause';
-    btnRecord.textContent = state === 'recording' ? '● Recording' : '● Record';
-  }
-  function startTicker(){
-    clearInterval(tick);
-    tick = setInterval(() => {
-      let elapsed = totalMs;
-      if (state === 'recording') elapsed += performance.now() - startMs;
-      timerEl.textContent = fmt(elapsed);
-      if (state !== 'recording') return;
-      seek.max = Math.max(seek.max, Math.round(elapsed));
-      seek.value = Math.round(elapsed);
-      curEl.textContent = fmt(Number(seek.value));
-      durEl.textContent = fmt(Number(seek.max));
-    }, 50);
-  }
-  btnRecord.addEventListener('click', () => {
-    if (state === 'idle' || state === 'playback') {
-      totalMs = 0; startMs = performance.now();
-      setState('recording'); startTicker();
-    }
-  });
-  btnPause.addEventListener('click', () => {
-    if (state === 'recording') {
-      totalMs += performance.now() - startMs; setState('paused');
-    } else if (state === 'paused') {
-      startMs = performance.now(); setState('recording');
-    }
-  });
-  btnStop.addEventListener('click', () => {
-    if (state === 'recording') totalMs += performance.now() - startMs;
-    clearInterval(tick); setState('playback');
-    seek.max = totalMs || 1; seek.value = 0;
-    curEl.textContent = fmt(0); durEl.textContent = fmt(totalMs); timerEl.textContent = fmt(totalMs);
-  });
-  seek.addEventListener('input', () => {
-    if (state === 'playback' || state === 'paused') curEl.textContent = fmt(Number(seek.value));
-  });
-  window.addEventListener('keydown', (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    if (e.code === 'KeyR')  { btnRecord.click(); e.preventDefault(); }
-    if (e.code === 'Space') { btnPause.click();  e.preventDefault(); }
-  });
+  // Cameras
+  const cam1=document.getElementById('cam1'), cam2=document.getElementById('cam2');
+  const connect=document.getElementById('connectCams'), flip=document.getElementById('flipCams');
+  let facingMode='environment';
+  connect?.addEventListener('click', async ()=>{ try{ const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode},audio:false}); cam1.srcObject=stream; cam2.srcObject=stream; }catch(err){ alert('Camera error: '+err); }});
+  flip?.addEventListener('click', ()=>{ facingMode=(facingMode==='user')?'environment':'user'; connect.click(); });
 
-  // --- Cameras (local preview stub) ---
-  const cam1 = document.getElementById('cam1');
-  const cam2 = document.getElementById('cam2');
-  const connect = document.getElementById('connectCams');
-  const flip = document.getElementById('flipCams');
-  let facingMode = 'environment';
-
-  connect?.addEventListener('click', async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
-      cam1.srcObject = stream; cam2.srcObject = stream;
-    } catch (err) { alert('Camera error: ' + err); }
-  });
-  flip?.addEventListener('click', () => { facingMode = (facingMode === 'user') ? 'environment' : 'user'; connect.click(); });
-
-  // --- FPS HUD (decoupled from Three.js) ---
-  const fpsEl = document.getElementById('fps');
-  let frames = 0, last = performance.now();
-  setInterval(() => {
-    frames++;
-    const now = performance.now();
-    if (now - last >= 1000) { fpsEl.textContent = String(frames); frames = 0; last = now; }
-  }, 16);
+  // FPS HUD (decoupled from Three)
+  const fpsEl=document.getElementById('fps'); let frames=0,last=performance.now();
+  setInterval(()=>{ frames++; const now=performance.now(); if(now-last>=1000){ fpsEl.textContent=String(frames); frames=0; last=now; }},16);
 </script>
 
-<!-- 2) Three.js module: only handles rig + animation.
-     If CDN fails, the non-Three buttons still work. -->
+<!-- Three.js module: rig + animation (all local paths, no import maps) -->
 <script type="module">
   console.log("monitor: module script starting");
-
-  // Prefer local files to avoid CDN flakiness. If you didn’t download them yet,
-  // switch these three imports back to the unpkg URLs.
   import * as THREE from '/static/js/three.module.js';
   import { OrbitControls } from '/static/js/OrbitControls.js';
   import { FBXLoader } from '/static/js/FBXLoader.js';
@@ -247,104 +181,67 @@
   let model, mixer, currentAction;
   const boneMap = {};
 
-  function initThree() {
-    const container = document.getElementById('viewport');
-
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
-
-    camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 1000);
-    camera.position.set(1.6, 1.8, 3.2);
-
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(container.clientWidth, container.clientHeight);
+  function initThree(){
+    const container=document.getElementById('viewport');
+    scene=new THREE.Scene(); scene.background=new THREE.Color(0x000000);
+    camera=new THREE.PerspectiveCamera(50, container.clientWidth/container.clientHeight, 0.1, 1000);
+    camera.position.set(1.6,1.8,3.2);
+    renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
-
-    controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 1.1, 0);
-
-    clock = new THREE.Clock();
-
+    controls=new OrbitControls(camera, renderer.domElement); controls.target.set(0,1.1,0);
+    clock=new THREE.Clock();
     scene.add(new THREE.AxesHelper(0.5));
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x222244, 1.2); scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0); dir.position.set(3, 5, 2); scene.add(dir);
-
-    const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(1.0, 64),
-      new THREE.MeshStandardMaterial({ color: 0x1b2330, metalness: 0.1, roughness: 0.9 })
-    );
-    floor.rotation.x = -Math.PI / 2; floor.position.y = 0; scene.add(floor);
-
-    window.addEventListener('resize', () => {
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
-    });
-
-    requestAnimationFrame(function loop(){
-      const dt = clock.getDelta();
-      if (mixer) mixer.update(dt);
-      controls.update();
-      renderer.render(scene, camera);
-      requestAnimationFrame(loop);
-    });
+    const hemi=new THREE.HemisphereLight(0xffffff,0x222244,1.2); scene.add(hemi);
+    const dir=new THREE.DirectionalLight(0xffffff,1.0); dir.position.set(3,5,2); scene.add(dir);
+    const floor=new THREE.Mesh(new THREE.CircleGeometry(1.0,64), new THREE.MeshStandardMaterial({color:0x1b2330,metalness:0.1,roughness:0.9}));
+    floor.rotation.x=-Math.PI/2; floor.position.y=0; scene.add(floor);
+    window.addEventListener('resize', ()=>{ camera.aspect=container.clientWidth/container.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(container.clientWidth, container.clientHeight); });
+    (function loop(){ const dt=clock.getDelta(); if(mixer) mixer.update(dt); controls.update(); renderer.render(scene,camera); requestAnimationFrame(loop); })();
   }
 
-  function buildBoneMap(root) {
-    Object.keys(boneMap).forEach(k => delete boneMap[k]);
-    root.traverse(obj => { if (obj.isBone) boneMap[simplify(obj.name)] = obj; });
-  }
-  const simplify = (n) => n.toLowerCase().replace(/^mixamorig:*/,'').replace(/[^a-z]/g,'');
+  function buildBoneMap(root){ for(const k of Object.keys(boneMap)) delete boneMap[k]; root.traverse(o=>{ if(o.isBone){ boneMap[simplify(o.name)]=o; } }); }
+  const simplify=(n)=> n.toLowerCase().replace(/^mixamorig:*/,'').replace(/[^a-z]/g,'');
 
-  function loadCharacter(path) {
-    const loader = new FBXLoader();
-    loader.load(path, (fbx) => {
-      if (model) scene.remove(model);
-      model = fbx; model.scale.setScalar(0.01);
+  function loadCharacter(path){
+    const loader=new FBXLoader();
+    loader.load(path, (fbx)=>{
+      if(model) scene.remove(model);
+      model=fbx; model.scale.setScalar(0.01);
       scene.add(model);
-      mixer = new THREE.AnimationMixer(model);
+      mixer=new THREE.AnimationMixer(model);
       buildBoneMap(model);
-      currentAction = null;
+      currentAction=null;
       console.log('Character loaded');
-    }, undefined, (e) => console.error('Character load error', e));
+    }, undefined, (e)=>console.error('Character load error', e));
   }
 
-  function loadAnimation(path) {
-    if (!model) { alert('Load the rig first.'); return; }
-    const loader = new FBXLoader();
-    loader.load(path, (anim) => {
-      const clip = anim?.animations?.[0];
-      if (!clip) { alert('No animation in file.'); return; }
-      if (currentAction) currentAction.stop();
-      currentAction = mixer.clipAction(clip);
+  function loadAnimation(path){
+    if(!model){ alert('Load the rig first.'); return; }
+    const loader=new FBXLoader();
+    loader.load(path, (anim)=>{
+      const clip=anim?.animations?.[0];
+      if(!clip){ alert('No animation in file.'); return; }
+      if(currentAction) currentAction.stop();
+      currentAction=mixer.clipAction(clip);
       currentAction.reset().play();
-      currentAction.paused = false;
-    }, undefined, (e) => console.error('Animation load error', e));
+      currentAction.paused=false;
+      console.log('Animation loaded:', clip.name||path);
+    }, undefined, (e)=>console.error('Animation load error', e));
   }
 
-  function applyBoneRotations(bonesDict) {
-    for (const key in bonesDict) {
-      const eul = bonesDict[key];
-      if (!Array.isArray(eul) || eul.length < 3) continue;
-      const b = boneMap[simplify(key)]; if (!b) continue;
-      const [rx, ry, rz] = eul.map(v => THREE.MathUtils.degToRad(v));
-      b.rotation.set(rx, ry, rz);
-    }
-  }
-
-  // Bind ONLY the rig/animation buttons here (module scope)
-  document.getElementById('loadRig').addEventListener('click', () => {
-    if (!scene) initThree();
+  // Bind rig/animation buttons
+  document.getElementById('loadRig').addEventListener('click', ()=>{
+    if(!scene) initThree();
     loadCharacter('/static/models/mixamo_character.fbx');
   });
-  document.getElementById('loadIdle').addEventListener('click', () => loadAnimation('/static/models/idle.fbx'));
-  document.getElementById('loadWalk').addEventListener('click', () => loadAnimation('/static/models/walk.fbx'));
-  document.getElementById('animPlay').addEventListener('click', () => { if (currentAction) currentAction.paused = false; });
-  document.getElementById('animPause').addEventListener('click', () => { if (currentAction) currentAction.paused = true; });
-  document.getElementById('animReset').addEventListener('click', () => { if (currentAction) currentAction.reset(); });
+  document.getElementById('loadIdle').addEventListener('click', ()=> loadAnimation('/static/models/Idle.fbx'));
+  document.getElementById('loadWalk').addEventListener('click', ()=> loadAnimation('/static/models/Walking.fbx'));
+  document.getElementById('animPlay').addEventListener('click', ()=>{ if (currentAction) currentAction.paused = false; });
+  document.getElementById('animPause').addEventListener('click', ()=>{ if (currentAction) currentAction.paused = true; });
+  document.getElementById('animReset').addEventListener('click', ()=>{ if (currentAction) currentAction.reset(); });
 
-  // Also map the main Play to animation play if loaded
-  document.getElementById('btnPlay').addEventListener('click', () => { if (currentAction) currentAction.paused = false; });
+  // Map main Play button to animation play
+  document.getElementById('btnPlay').addEventListener('click', ()=>{ if (currentAction) currentAction.paused = false; });
 
   console.log("monitor: module script bound");
 </script>
