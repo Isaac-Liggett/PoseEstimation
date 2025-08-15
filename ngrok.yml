@@ -1,0 +1,12 @@
+version: "3"   # required
+
+agent:
+  authtoken: 2AnEVDVxyntJbp1yZfcpse86SBc_6LZtGSmAyj8MyZGFvBk8e
+
+tunnels:
+  static:
+    proto: http
+    addr: 5000
+  webrtc:
+    proto: http
+    addr: 8080 

@@ -49,6 +49,8 @@
     <script type="text/javascript" charset="utf-8">
         const pc = new RTCPeerConnection();
         const videoEl = document.querySelector("#root video");
+        const baseUrl = `${window.location.protocol}//${window.location.host.split(":")[0]}`;
+        const webrtc_url = "{{ webrtcurl }}";
 
         navigator.mediaDevices.getUserMedia({ video: true, audio: false })
         .then(stream => {
@@ -59,7 +61,7 @@
         })
         .then(() => pc.createOffer())
         .then(offer => pc.setLocalDescription(offer))
-        .then(() => fetch("http://127.0.0.1:8080/camera_offer", {
+        .then(() => fetch(`${webrtc_url}/camera_offer`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(pc.localDescription)

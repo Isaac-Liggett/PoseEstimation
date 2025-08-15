@@ -3,16 +3,18 @@ import json
 import logging
 from aiohttp import web
 import aiohttp_cors
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCDataChannel
+from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 from aiortc.contrib.media import MediaRelay
+import cv2
 
 logging.basicConfig(level=logging.INFO)
 
-# Globals
-pcs = set()         # All PeerConnections
-monitors = set()    # Monitor PeerConnections
+# --------- Globals ----------
+pcs = set()               # all PeerConnections
+monitors = set()          # monitor PeerConnections
 relay = MediaRelay()
-camera_tracks = set()
+camera_tracks = {"cam1": None, "cam2": None}  # fixed slots
+monitor_channels = {}     # monitor PC -> data channel
 
 # --------- Camera offer handler ----------
 async def camera_offer(request):
@@ -25,17 +27,28 @@ async def camera_offer(request):
 
     @pc.on("track")
     async def on_track(track):
-        if track.kind == "video":
-            local_track = relay.subscribe(track)
-            camera_tracks.add(local_track)
+        if track.kind != "video":
+            return
 
-            # Add this new track to all existing monitors
+        slot_name = "cam1" if camera_tracks["cam1"] is None else "cam2"
+        camera_tracks[slot_name] = relay.subscribe(track)
+        logging.info(f"{slot_name} track stored")
+
+        # Start AI processing
+        asyncio.create_task(process_video(camera_tracks[slot_name]))
+
+        # Safely attach track to monitors
+        async def _replace():
+            await asyncio.sleep(0.1)  # allow monitors to finish SDP
             for monitor_pc in monitors:
-                monitor_pc.addTrack(local_track)
-                # optionally trigger renegotiation if needed
+                # Add transceiver if missing
+                if len(monitor_pc.getTransceivers()) < 2:
+                    monitor_pc.addTransceiver("video", direction="recvonly")
+                for transceiver, cam_key in zip(monitor_pc.getTransceivers(), ["cam1", "cam2"]):
+                    if cam_key == slot_name:
+                        await transceiver.sender.replace_track(camera_tracks[slot_name])
 
-            # Start AI processing
-            asyncio.create_task(process_video(local_track))
+        asyncio.create_task(_replace())
 
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
@@ -52,68 +65,80 @@ async def monitor_offer(request):
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
     pc = RTCPeerConnection()
+    pcs.add(pc)
     monitors.add(pc)
     logging.info("New monitor connected")
 
-    @pc.on("datachannel")
-    def on_datachannel(channel: RTCDataChannel):
-        logging.info(f"Monitor data channel {channel.label} opened")
+    # Data channel for pose
+    pose_channel = pc.createDataChannel("pose")
+    monitor_channels[pc] = pose_channel
 
-    @pc.on("track")
-    def on_track(track):
-        logging.info(f"Monitor will receive track: {track.kind}")
-
+    # Set remote description first
     await pc.setRemoteDescription(offer)
+
+    # Create recvonly transceivers to match existing camera tracks
+    for cam_key in ["cam1", "cam2"]:
+        if camera_tracks[cam_key] is not None:
+            pc.addTransceiver("video", direction="recvonly")
+
+    # Create answer after transceivers
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
+
+    # Attach existing camera tracks
+    for transceiver, cam_key in zip(pc.getTransceivers(), ["cam1", "cam2"]):
+        track = camera_tracks[cam_key]
+        if track is not None:
+            await transceiver.sender.replace_track(track)
 
     return web.json_response({
         "sdp": pc.localDescription.sdp,
         "type": pc.localDescription.type
     })
 
-# --------- Video processing & forwarding ----------
+# --------- Video processing & pose forwarding ----------
 async def process_video(track: VideoStreamTrack):
-    """
-    Simulated AI processing: receives frames from camera, 
-    sends pose data to all monitors via data channels.
-    """
-    frame_count = 0
     while True:
-        frame = await track.recv()
+        frame = await track.recv()  # av.VideoFrame
+        img = frame.to_ndarray(format="bgr24")  # Convert to NumPy array in BGR
 
-        frame_count += 1
-        if frame_count % 30 == 0:  # Log every 30 frames
-            logging.info(f"Received {frame_count} frames from camera")
+        # Display the frame using OpenCV
+        cv2.imshow("Camera Feed", img)
 
-        # Replace this with your AI pose estimation
-        pose_data = {"x": 100, "y": 200}  # dummy pose
+        # Wait 1 ms and allow exit on 'q'
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-        # Send to all monitors
-        for monitor_pc in monitors:
-            for sender in monitor_pc.getSenders():
-                if isinstance(sender, RTCDataChannel):
-                    try:
-                        await sender.send(json.dumps(pose_data))
-                    except Exception as e:
-                        logging.warning(f"Failed to send pose: {e}")
+        # Simulate pose detection
+        pose_data = {"x": 100, "y": 200}
 
-# --------- Cleanup on shutdown ----------
+        # Send pose data to monitors (existing code)
+        for monitor_pc, channel in monitor_channels.items():
+            if channel.readyState == "open":
+                try:
+                    await channel.send(json.dumps(pose_data))
+                except Exception:
+                    pass
+
+    cv2.destroyAllWindows()
+
+# --------- Cleanup ----------
 async def on_shutdown(app):
-    coros = [pc.close() for pc in pcs.union(monitors)]
+    coros = [pc.close() for pc in pcs]
     await asyncio.gather(*coros)
     pcs.clear()
     monitors.clear()
+    camera_tracks["cam1"] = None
+    camera_tracks["cam2"] = None
+    monitor_channels.clear()
 
 # --------- aiohttp app & CORS ----------
 app = web.Application()
 app.on_shutdown.append(on_shutdown)
 
-# Add routes
 camera_route = app.router.add_post("/camera_offer", camera_offer)
 monitor_route = app.router.add_post("/monitor_offer", monitor_offer)
 
-# Enable CORS on all routes
 cors = aiohttp_cors.setup(app, defaults={
     "*": aiohttp_cors.ResourceOptions(
         allow_credentials=True,
@@ -124,7 +149,7 @@ cors = aiohttp_cors.setup(app, defaults={
 cors.add(camera_route)
 cors.add(monitor_route)
 
-# --------- Run the server ----------
+# --------- Run ----------
 if __name__ == "__main__":
     logging.info("Starting WebRTC server on port 8080")
     web.run_app(app, host="0.0.0.0", port=8080)
