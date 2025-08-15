@@ -3,10 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <title>{% block title %}Default Title{% endblock %}</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        body > main{
+            width: 100vw;
+            min-height: 100vh;
+        }
+    </style>
   </head>
-  <body class="flex flex-col min-h-screen">
-    <main class="min-h-full flex">
+  <body>
+    <main>
         {% block content %} 
         {% endblock %}
     </main>

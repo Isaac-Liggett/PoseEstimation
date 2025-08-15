@@ -1,14 +1,113 @@
 {% extends 'base.html' %}
 
 {% block title %}
-  Choose Device Type
+  Recording Device
 {% endblock %}
 
 {% block content %}
     <style>
-        
-    </style>
-    <div class="">
+        #root{
+            width: 100vw;
+            height: 100vh;
+            background-color: black;
+            overflow: hidden;
+            display: flex;
+        }
 
+        #root > video{
+            width: auto;
+            height: 100%;
+            margin: auto;
+            position: relative;
+        }
+
+        #root .hud{
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.4);
+            padding: 1rem;
+            z-index: 10;
+            font-family: 'Courier New', Courier, monospace;
+        }
+    </style>
+    <div id="root">
+        <video autoplay muted loop>
+            <source src="video.mp4" type="video/mp4">
+            Your browser does not support HTML5 video.
+        </video>
+        <div class="hud">
+            <h1>Status: <span id="status"></span></h1>
+            <h1>FPS: <span id="fps"></span></h1>
+        </div>
     </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js" integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA==" crossorigin="anonymous"></script>
+    <script type="text/javascript" charset="utf-8">
+        const socket = io("http://127.0.0.1:5000");
+
+        // When connected
+        socket.on("connect", () => {
+            console.log("Connected to server");
+        });
+
+        // When disconnected
+        socket.on("disconnect", () => {
+            console.log("Disconnected from server");
+        });
+
+        // Listen for messages from the server
+        socket.on("server_message", (data) => {
+            console.log("Server says:", data);
+        });
+    </script>
+    <script>
+        const _root = document.querySelector("#root");
+        const videoElement = _root.querySelector("video");
+        const statusElement = document.getElementById("status");
+        const fpsElement = document.getElementById("fps");
+
+        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+            .then(stream => {
+                videoElement.srcObject = stream;
+                statusElement.textContent = "Streaming";
+                measureFPS();
+            })
+            .catch(err => {
+                console.error("Error accessing the camera: ", err);
+                statusElement.textContent = "Camera Error";
+            });
+
+        let lastTime = performance.now();
+        let frameCount = 0;
+
+        function measureFPS() {
+            if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+                // Modern method
+                videoElement.requestVideoFrameCallback((now, metadata) => {
+                    frameCount++;
+                    const delta = now - lastTime;
+                    if (delta >= 1000) {
+                        fpsElement.textContent = (frameCount / (delta / 1000)).toFixed(1);
+                        frameCount = 0;
+                        lastTime = now;
+                    }
+                    measureFPS();
+                });
+            } else {
+                // Fallback for older browsers
+                requestAnimationFrame(() => {
+                    frameCount++;
+                    const now = performance.now();
+                    const delta = now - lastTime;
+                    if (delta >= 1000) {
+                        fpsElement.textContent = (frameCount / (delta / 1000)).toFixed(1);
+                        frameCount = 0;
+                        lastTime = now;
+                    }
+                    measureFPS();
+                });
+            }
+        }
+    </script>
 {% endblock %}

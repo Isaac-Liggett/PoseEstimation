@@ -1,10 +1,18 @@
 from flask import Flask, render_template
+from flask_socketio import SocketIO
 
 app = Flask(__name__)
+socketio = SocketIO(app)
 
 @app.route("/")
-def hello_world():
+def index():
     return render_template("index.html")
 
+@app.route("/camera")
+def camera():
+    return render_template("camera.html")
+
+from sockets_handler import * # SocketIO Routes are here
+
 if __name__ == "__main__":
-    app.run("127.0.0.1", 5000, True)
+    socketio.run(app, host="127.0.0.1", port=5000, debug=True)
