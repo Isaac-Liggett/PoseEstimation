@@ -2,7 +2,7 @@ from flask import Flask, render_template
 from flask_socketio import SocketIO
 
 app = Flask(__name__)
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 @app.route("/")
 def index():
@@ -12,7 +12,6 @@ def index():
 def camera():
     return render_template("camera.html")
 
-from sockets_handler import * # SocketIO Routes are here
-
 if __name__ == "__main__":
-    socketio.run(app, host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=True)
+    # socketio.run(app, host="127.0.0.1", port=5000, debug=True)
