@@ -12,6 +12,7 @@ logging.basicConfig(level=logging.INFO)
 pcs = set()         # All PeerConnections
 monitors = set()    # Monitor PeerConnections
 relay = MediaRelay()
+camera_tracks = set()
 
 # --------- Camera offer handler ----------
 async def camera_offer(request):
@@ -24,9 +25,16 @@ async def camera_offer(request):
 
     @pc.on("track")
     async def on_track(track):
-        logging.info(f"Camera track received: {track.kind}")
         if track.kind == "video":
             local_track = relay.subscribe(track)
+            camera_tracks.add(local_track)
+
+            # Add this new track to all existing monitors
+            for monitor_pc in monitors:
+                monitor_pc.addTrack(local_track)
+                # optionally trigger renegotiation if needed
+
+            # Start AI processing
             asyncio.create_task(process_video(local_track))
 
     await pc.setRemoteDescription(offer)
@@ -50,6 +58,10 @@ async def monitor_offer(request):
     @pc.on("datachannel")
     def on_datachannel(channel: RTCDataChannel):
         logging.info(f"Monitor data channel {channel.label} opened")
+
+    @pc.on("track")
+    def on_track(track):
+        logging.info(f"Monitor will receive track: {track.kind}")
 
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()

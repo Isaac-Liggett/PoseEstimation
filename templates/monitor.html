@@ -97,8 +97,9 @@
   <div class="sidebar">
     <div class="sidecard">
       <h3>Cameras</h3>
-      <video id="cam1" autoplay muted playsinline></video>
-      <video id="cam2" autoplay muted playsinline></video>
+      <div id="videos-container">
+        <!-- Videos go here -->
+      </div>
       <div class="row" style="display:flex; gap:8px;">
         <button class="btn" id="connectCams">Connect</button>
         <button class="btn" id="flipCams">Flip</button>
@@ -244,5 +245,45 @@
   document.getElementById('btnPlay').addEventListener('click', ()=>{ if (currentAction) currentAction.paused = false; });
 
   console.log("monitor: module script bound");
+</script>
+
+<!-- WebRTC client script -->
+<script>
+  const pc = new RTCPeerConnection();
+  const container = document.getElementById("#videos-container");
+  const poseEl = document.getElementById("poseData");
+
+  // Receive video tracks dynamically
+  pc.ontrack = (event) => {
+      console.log("track")
+      const remoteVideo = document.createElement("video");
+      remoteVideo.srcObject = event.streams[0];
+      remoteVideo.autoplay = true;
+      document.body.appendChild(remoteVideo);
+  };
+
+  // Data channel for pose info
+  const poseChannel = pc.createDataChannel("pose");
+  poseChannel.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      poseEl.textContent = JSON.stringify(data, null, 2);
+  };
+
+  // Offer to server
+  async function startMonitor() {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const response = await fetch("http://127.0.0.1:8080/monitor_offer", {
+          method: "POST",
+          body: JSON.stringify(pc.localDescription),
+          headers: { "Content-Type": "application/json" }
+      });
+
+      const answer = await response.json();
+      await pc.setRemoteDescription(answer);
+  }
+
+  startMonitor().catch(console.error);
 </script>
 {% endblock %}
