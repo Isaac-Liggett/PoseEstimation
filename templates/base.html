@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>{% block title %}Default Title{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body class="flex flex-col min-h-screen">
+    <main class="min-h-full flex">
+        {% block content %} 
+        {% endblock %}
+    </main>
+  </body>
+</html>

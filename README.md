@@ -3,3 +3,5 @@ UQCS Hackathon Projet For 2025
 Project Members:
 - Isaac Liggett
 - Prabhjot Singh
+
+This project was built on Python 3.10
