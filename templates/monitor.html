@@ -1,14 +1,351 @@
 {% extends 'base.html' %}
 
-{% block title %}
-  Choose Device Type
-{% endblock %}
+{% block title %}Monitor{% endblock %}
 
 {% block content %}
-    <style>
-        
-    </style>
-    <div class="">
+<style>
+  .monitor-layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 16px;
+  }
+  .stage { display: flex; flex-direction: column; gap: 12px; }
 
+  /* Viewport area */
+  #viewport {
+    position: relative;
+    width: 100%;
+    height: 60vh;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.35);
+  }
+  .hud {
+    position: absolute; inset: 10px auto auto 10px;
+    display: flex; gap: 8px; align-items: center;
+    pointer-events: none;
+  }
+  .badge.rec {
+    background: #2a0e12; border: 1px solid #b02a2a; color: #ff6961;
+  }
+  .hidden { display: none; }
+
+  /* Controls row */
+  .controls { display: flex; gap: 8px; align-items: center; }
+  .btn.danger {
+    background: linear-gradient(135deg, #ff5757, #ff2a2a);
+    border-color: #c02020; color: #fff;
+  }
+  .grow { flex: 1 1 auto; }
+
+  /* Timeline */
+  .timeline {
+    background: #0d131a; border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .timeline input[type="range"] { width: 100%; }
+  .timebar { display: flex; justify-content: space-between; margin-top: 6px; color: var(--muted); }
+
+  /* Sidebar */
+  .sidebar .sidecard {
+    background: #0f141b; border: 1px solid var(--border);
+    border-radius: 14px; padding: 12px; margin-bottom: 16px;
+  }
+  .sidebar h3 { margin: 0 0 8px 0; }
+  .sidebar video {
+    width: 100%; aspect-ratio: 16 / 9; object-fit: cover;
+    border-radius: 10px; border: 1px solid var(--border); background: #000;
+    margin-bottom: 10px;
+  }
+
+  @media (max-width: 980px) {
+    .monitor-layout { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="monitor-layout">
+  <!-- LEFT: 3D stage -->
+  <div class="stage">
+    <div id="viewport">
+      <div class="hud">
+        <span id="recBadge" class="badge rec hidden">● REC</span>
+        <span class="badge"><span id="timer">00:00.0</span></span>
+        <span class="badge">FPS <span id="fps">—</span></span>
+      </div>
     </div>
+
+    <div class="controls">
+      <button class="btn danger" id="btnRecord">● Record</button>
+      <button class="btn" id="btnPause" disabled>Pause</button>
+      <button class="btn" id="btnStop" disabled>Stop</button>
+      <div class="grow"></div>
+      <button class="btn" id="btnPlay">Play</button>
+      <button class="btn" id="btnExport">Export</button>
+    </div>
+
+    <div class="timeline">
+      <input type="range" id="seek" min="0" max="15000" step="10" value="0" />
+      <div class="timebar">
+        <span id="cur">00:00.0</span>
+        <span id="dur">00:15.0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: camera previews + rig controls + tips -->
+  <div class="sidebar">
+    <div class="sidecard">
+      <h3>Cameras</h3>
+      <video id="cam1" autoplay muted playsinline></video>
+      <video id="cam2" autoplay muted playsinline></video>
+      <div class="row" style="display:flex; gap:8px;">
+        <button class="btn" id="connectCams">Connect</button>
+        <button class="btn" id="flipCams">Flip</button>
+      </div>
+    </div>
+
+    <div class="sidecard">
+      <h3>Rig &amp; Animation</h3>
+      <div class="row" style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn" id="loadRig">Load Rig</button>
+        <button class="btn" id="loadIdle">Idle</button>
+        <button class="btn" id="loadWalk">Walk</button>
+        <button class="btn" id="animPlay">Play</button>
+        <button class="btn" id="animPause">Pause</button>
+        <button class="btn" id="animReset">Reset</button>
+      </div>
+      <small class="muted">Files: <code>/static/models/mixamo_character.fbx</code>, <code>idle.fbx</code>, <code>walk.fbx</code></small>
+    </div>
+
+    <div class="sidecard">
+      <h3>Tips</h3>
+      <ul class="muted" style="margin:0; padding-left:18px; line-height:1.6;">
+        <li>Press <b>R</b> to start/stop recording.</li>
+        <li>Press <b>Space</b> to pause/resume.</li>
+        <li>Drag the timeline to scrub.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- 1) Plain script: attaches Record/Pause/Stop, timeline, camera buttons (works even if Three.js fails) -->
+<script>
+  console.log("monitor: plain script loaded");
+
+  // --- RECORD/PAUSE/STOP state machine (UI only) ---
+  const btnRecord = document.getElementById('btnRecord');
+  const btnPause  = document.getElementById('btnPause');
+  const btnStop   = document.getElementById('btnStop');
+  const btnPlay   = document.getElementById('btnPlay');
+  const btnExport = document.getElementById('btnExport');
+
+  const recBadge  = document.getElementById('recBadge');
+  const timerEl   = document.getElementById('timer');
+  const curEl     = document.getElementById('cur');
+  const durEl     = document.getElementById('dur');
+  const seek      = document.getElementById('seek');
+
+  let state = 'idle';           // 'idle' | 'recording' | 'paused' | 'playback'
+  let startMs = 0, totalMs = 0; // elapsed accumulator
+  let tick;
+
+  function fmt(ms){
+    const s = ms / 1000, m = Math.floor(s / 60);
+    const rest = (s - m*60).toFixed(1).padStart(4,'0');
+    return `${String(m).padStart(2,'0')}:${rest}`;
+  }
+  function setState(next){
+    state = next;
+    const recLike = (state === 'recording' || state === 'paused');
+    btnPause.disabled = !recLike;
+    btnStop.disabled  = !recLike;
+    recBadge.classList.toggle('hidden', state !== 'recording');
+    btnPause.textContent = state === 'paused' ? 'Resume' : 'Pause';
+    btnRecord.textContent = state === 'recording' ? '● Recording' : '● Record';
+  }
+  function startTicker(){
+    clearInterval(tick);
+    tick = setInterval(() => {
+      let elapsed = totalMs;
+      if (state === 'recording') elapsed += performance.now() - startMs;
+      timerEl.textContent = fmt(elapsed);
+      if (state !== 'recording') return;
+      seek.max = Math.max(seek.max, Math.round(elapsed));
+      seek.value = Math.round(elapsed);
+      curEl.textContent = fmt(Number(seek.value));
+      durEl.textContent = fmt(Number(seek.max));
+    }, 50);
+  }
+  btnRecord.addEventListener('click', () => {
+    if (state === 'idle' || state === 'playback') {
+      totalMs = 0; startMs = performance.now();
+      setState('recording'); startTicker();
+    }
+  });
+  btnPause.addEventListener('click', () => {
+    if (state === 'recording') {
+      totalMs += performance.now() - startMs; setState('paused');
+    } else if (state === 'paused') {
+      startMs = performance.now(); setState('recording');
+    }
+  });
+  btnStop.addEventListener('click', () => {
+    if (state === 'recording') totalMs += performance.now() - startMs;
+    clearInterval(tick); setState('playback');
+    seek.max = totalMs || 1; seek.value = 0;
+    curEl.textContent = fmt(0); durEl.textContent = fmt(totalMs); timerEl.textContent = fmt(totalMs);
+  });
+  seek.addEventListener('input', () => {
+    if (state === 'playback' || state === 'paused') curEl.textContent = fmt(Number(seek.value));
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.code === 'KeyR')  { btnRecord.click(); e.preventDefault(); }
+    if (e.code === 'Space') { btnPause.click();  e.preventDefault(); }
+  });
+
+  // --- Cameras (local preview stub) ---
+  const cam1 = document.getElementById('cam1');
+  const cam2 = document.getElementById('cam2');
+  const connect = document.getElementById('connectCams');
+  const flip = document.getElementById('flipCams');
+  let facingMode = 'environment';
+
+  connect?.addEventListener('click', async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false });
+      cam1.srcObject = stream; cam2.srcObject = stream;
+    } catch (err) { alert('Camera error: ' + err); }
+  });
+  flip?.addEventListener('click', () => { facingMode = (facingMode === 'user') ? 'environment' : 'user'; connect.click(); });
+
+  // --- FPS HUD (decoupled from Three.js) ---
+  const fpsEl = document.getElementById('fps');
+  let frames = 0, last = performance.now();
+  setInterval(() => {
+    frames++;
+    const now = performance.now();
+    if (now - last >= 1000) { fpsEl.textContent = String(frames); frames = 0; last = now; }
+  }, 16);
+</script>
+
+<!-- 2) Three.js module: only handles rig + animation.
+     If CDN fails, the non-Three buttons still work. -->
+<script type="module">
+  console.log("monitor: module script starting");
+
+  // Prefer local files to avoid CDN flakiness. If you didn’t download them yet,
+  // switch these three imports back to the unpkg URLs.
+  import * as THREE from '/static/js/three.module.js';
+  import { OrbitControls } from '/static/js/OrbitControls.js';
+  import { FBXLoader } from '/static/js/FBXLoader.js';
+
+  let scene, camera, renderer, controls, clock;
+  let model, mixer, currentAction;
+  const boneMap = {};
+
+  function initThree() {
+    const container = document.getElementById('viewport');
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+
+    camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 1000);
+    camera.position.set(1.6, 1.8, 3.2);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1.1, 0);
+
+    clock = new THREE.Clock();
+
+    scene.add(new THREE.AxesHelper(0.5));
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x222244, 1.2); scene.add(hemi);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0); dir.position.set(3, 5, 2); scene.add(dir);
+
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(1.0, 64),
+      new THREE.MeshStandardMaterial({ color: 0x1b2330, metalness: 0.1, roughness: 0.9 })
+    );
+    floor.rotation.x = -Math.PI / 2; floor.position.y = 0; scene.add(floor);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    requestAnimationFrame(function loop(){
+      const dt = clock.getDelta();
+      if (mixer) mixer.update(dt);
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    });
+  }
+
+  function buildBoneMap(root) {
+    Object.keys(boneMap).forEach(k => delete boneMap[k]);
+    root.traverse(obj => { if (obj.isBone) boneMap[simplify(obj.name)] = obj; });
+  }
+  const simplify = (n) => n.toLowerCase().replace(/^mixamorig:*/,'').replace(/[^a-z]/g,'');
+
+  function loadCharacter(path) {
+    const loader = new FBXLoader();
+    loader.load(path, (fbx) => {
+      if (model) scene.remove(model);
+      model = fbx; model.scale.setScalar(0.01);
+      scene.add(model);
+      mixer = new THREE.AnimationMixer(model);
+      buildBoneMap(model);
+      currentAction = null;
+      console.log('Character loaded');
+    }, undefined, (e) => console.error('Character load error', e));
+  }
+
+  function loadAnimation(path) {
+    if (!model) { alert('Load the rig first.'); return; }
+    const loader = new FBXLoader();
+    loader.load(path, (anim) => {
+      const clip = anim?.animations?.[0];
+      if (!clip) { alert('No animation in file.'); return; }
+      if (currentAction) currentAction.stop();
+      currentAction = mixer.clipAction(clip);
+      currentAction.reset().play();
+      currentAction.paused = false;
+    }, undefined, (e) => console.error('Animation load error', e));
+  }
+
+  function applyBoneRotations(bonesDict) {
+    for (const key in bonesDict) {
+      const eul = bonesDict[key];
+      if (!Array.isArray(eul) || eul.length < 3) continue;
+      const b = boneMap[simplify(key)]; if (!b) continue;
+      const [rx, ry, rz] = eul.map(v => THREE.MathUtils.degToRad(v));
+      b.rotation.set(rx, ry, rz);
+    }
+  }
+
+  // Bind ONLY the rig/animation buttons here (module scope)
+  document.getElementById('loadRig').addEventListener('click', () => {
+    if (!scene) initThree();
+    loadCharacter('/static/models/mixamo_character.fbx');
+  });
+  document.getElementById('loadIdle').addEventListener('click', () => loadAnimation('/static/models/idle.fbx'));
+  document.getElementById('loadWalk').addEventListener('click', () => loadAnimation('/static/models/walk.fbx'));
+  document.getElementById('animPlay').addEventListener('click', () => { if (currentAction) currentAction.paused = false; });
+  document.getElementById('animPause').addEventListener('click', () => { if (currentAction) currentAction.paused = true; });
+  document.getElementById('animReset').addEventListener('click', () => { if (currentAction) currentAction.reset(); });
+
+  // Also map the main Play to animation play if loaded
+  document.getElementById('btnPlay').addEventListener('click', () => { if (currentAction) currentAction.paused = false; });
+
+  console.log("monitor: module script bound");
+</script>
 {% endblock %}

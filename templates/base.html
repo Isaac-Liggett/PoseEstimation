@@ -2,23 +2,120 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>{% block title %}Default Title{% endblock %}</title>
+    <title>{% block title %}Equitable Mocap{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/static/style.css" />
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-        }
-
-        body > main{
-            width: 100vw;
-            min-height: 100vh;
-        }
+      :root {
+        --bg: #0b0d10;
+        --panel: #12161c;
+        --text: #eaf2ff;
+        --muted: #9bb0c9;
+        --brand: #5aa0ff;
+        --brand-2: #7affb2;
+        --border: #1f2732;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #0b0d10 0%, #0e1218 100%);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Apple Color Emoji","Segoe UI Emoji";
+        display: flex; flex-direction: column;
+      }
+      header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 18px; border-bottom: 1px solid var(--border);
+        background: rgba(18, 22, 28, 0.7); backdrop-filter: blur(6px);
+        position: sticky; top: 0; z-index: 10;
+      }
+      .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; }
+      .brand-badge {
+        width: 28px; height: 28px; border-radius: 8px;
+        background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      }
+      .muted { color: var(--muted); font-size: 0.9rem; }
+      main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+      .container { width: min(1100px, 92vw); margin: 0 auto; }
+      .panel {
+        background: var(--panel); border: 1px solid var(--border);
+        border-radius: 16px; padding: 24px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      }
+      h1 { margin: 0 0 8px 0; font-size: clamp(1.6rem, 2vw, 2rem); }
+      h2 { margin: 0 0 16px 0; font-size: clamp(1.2rem, 1.6vw, 1.6rem); color: var(--muted); font-weight: 500; }
+      .grid {
+        display: grid; gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+      .card {
+        background: #0f141b; border: 1px solid var(--border);
+        border-radius: 14px; padding: 18px;
+        transition: transform .12s ease, border-color .12s ease;
+      }
+      .card:hover { transform: translateY(-2px); border-color: #2a3443; }
+      .btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+        background: linear-gradient(135deg, #1b2330, #18202b);
+        border: 1px solid var(--border); color: var(--text);
+        padding: 12px 16px; border-radius: 12px; text-decoration: none; cursor: pointer;
+        font-weight: 600;
+      }
+      .btn.primary { background: linear-gradient(135deg, var(--brand), #3f7fff); border-color: #3f7fff; color:#041322; }
+      .btn.full { width: 100%; }
+      .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+      .grow { flex: 1 1 auto; }
+      .input {
+        width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);
+        background: #0d1218; color: var(--text); outline: none;
+      }
+      .kpi {
+        display:flex; gap:12px; align-items:center; padding: 10px 12px; border-radius: 10px;
+        background: #0d131a; border: 1px solid var(--border);
+      }
+      .badge { padding: 2px 8px; border-radius: 999px; background: #0b1725; border: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+      footer { padding: 12px 18px; color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--border); }
+      small.code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
     </style>
+    {% block head %}{% endblock %}
   </head>
   <body>
+    <header class="container">
+      <div class="brand">
+        <span class="brand-badge"></span>
+        <span>Equitable Mocap</span>
+      </div>
+      <div class="row">
+        <div class="kpi"><span class="badge">Status</span><span id="netStatus">Online</span></div>
+        <div class="kpi"><span class="badge">Latency</span><span id="latency">—</span></div>
+      </div>
+    </header>
+
     <main>
-        {% block content %} 
-        {% endblock %}
+      <div class="container panel">
+        {% block content %}{% endblock %}
+      </div>
     </main>
+
+    <footer>
+      <div class="container">
+        <span class="muted">Two phones. One live 3D avatar. No suits. No markers.</span>
+      </div>
+    </footer>
+
+    <script>
+      // Small online/offline HUD
+      const netStatus = document.getElementById('netStatus');
+      const latencyEl = document.getElementById('latency');
+      function updateOnline() { netStatus.textContent = navigator.onLine ? 'Online' : 'Offline'; }
+      window.addEventListener('online', updateOnline);
+      window.addEventListener('offline', updateOnline);
+      updateOnline();
+      // Optional: wire a /ping later to fill latencyEl
+    </script>
+
+    {# Page-specific scripts go here, after DOM is ready #}
+    {% block scripts %}{% endblock %}
   </body>
 </html>

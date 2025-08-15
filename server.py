@@ -12,6 +12,10 @@ def index():
 def camera():
     return render_template("camera.html")
 
+@app.route("/monitor")
+def monitor():
+    return render_template("monitor.html")
+
 from sockets_handler import * # SocketIO Routes are here
 
 if __name__ == "__main__":
