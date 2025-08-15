@@ -1,14 +1,37 @@
 {% extends 'base.html' %}
 
-{% block title %}
-  Choose Device Type
-{% endblock %}
+{% block title %}Choose Device Type{% endblock %}
 
 {% block content %}
-    <style>
-        
-    </style>
-    <div class="">
+  <h1>Choose a device type</h1>
+  <h2>Select how this device will participate.</h2>
 
+  <div class="grid" style="margin-top:16px;">
+    <div class="card">
+      <h3 style="margin:0 0 8px 0;">📹 Video Capture</h3>
+      <p class="muted" style="margin:0 0 12px 0;">
+        Use this device (phone) to capture video and stream to the app/monitor.
+      </p>
+      <a class="btn primary full" id="goCamera" href="/camera">Open Camera</a>
+      <small class="muted">Requires camera + microphone permission.</small>
     </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 8px 0;">🖥️ Monitor</h3>
+      <p class="muted" style="margin:0 0 12px 0;">
+        Use this device to view live pose, the 3D rig, and playback recorded clips.
+      </p>
+      <a class="btn full" id="goMonitor" href="/monitor">Open Monitor</a>
+      <small class="muted">Best on laptop/desktop with GPU.</small>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3 style="margin:0 0 8px 0;">Quick tips</h3>
+    <ul class="muted" style="margin:0; padding-left:18px; line-height:1.6;">
+      <li>Stand in a clear area and do a quick T-pose for calibration.</li>
+      <li>For two phones, place them ~90° apart for fewer occlusions.</li>
+      <li>Keep both devices on the same Wi-Fi for lower latency.</li>
+    </ul>
+  </div>
 {% endblock %}
