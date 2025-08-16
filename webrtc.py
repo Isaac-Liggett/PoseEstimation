@@ -126,12 +126,8 @@ async def process_video(track: VideoStreamTrack, slot_name: str):
         
         img = frame.to_ndarray(format="bgr24")
         
-        # Example: convert to grayscale
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        processed = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        
         # Add to frame buffer
-        frame_buffers[slot_name].append(processed)
+        frame_buffers[slot_name].append(img)
         await asyncio.sleep(0)  # yield control
 
 def get_synchronized_frames():
@@ -247,7 +243,6 @@ def _broadcast_json(obj: dict):
             dead.append(ch)
     for ch in dead:
         skeleton_channels.discard(ch)
-
 
 # --------- MJPEG stream route ----------
 async def mjpeg_stream(request):

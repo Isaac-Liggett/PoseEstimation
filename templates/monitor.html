@@ -92,8 +92,9 @@
   }
 
   .sidebar .video {
-    width: 100%;
-    aspect-ratio: 16/9;
+    width: 19rem;
+    height: 10.6875rem;
+    /* aspect-ratio: 16/9; */
     border-radius: 10px;
     border: 1px solid var(--border);
     background: #000;
@@ -218,8 +219,6 @@
   }
 }
 </script>
-
-
 
 <!-- Three.js (CDN) — rig + animation -->
 <script type="module">
@@ -501,9 +500,39 @@
   const webrtc_url = "{{ webrtcurl }}";
   const wrap = document.getElementById('videos-container');
 
-  const v1 = document.createElement('iframe'); v1.src = `${webrtc_url}/view?cam=cam1`; v1.className = 'video';
-  const v2 = document.createElement('iframe'); v2.src = `${webrtc_url}/view?cam=cam2`; v2.className = 'video';
-  wrap.appendChild(v1); wrap.appendChild(v2);
+  // Helper function to create a canvas and associated hidden MJPEG img
+  function createVideoCanvas(cam) {
+    // Canvas element
+    const canvas = document.createElement('canvas');
+    canvas.className = 'video';
+
+    // Hidden img to load MJPEG stream
+    const img = document.createElement('img');
+    img.src = `${webrtc_url}/view?cam=${cam}`;
+    img.style.display = 'none';
+
+    const ctx = canvas.getContext('2d');
+
+    // Draw frames continuously
+    img.onload = function drawFrame() {
+      // Resize canvas to match img aspect ratio
+      const containerWidth = wrap.clientWidth / 2; // half width for two streams
+      const scale = containerWidth / img.naturalWidth;
+      canvas.width = img.naturalWidth * scale;
+      canvas.height = img.naturalHeight * scale;
+
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      requestAnimationFrame(drawFrame);
+    };
+
+    wrap.appendChild(canvas);
+    document.body.appendChild(img); // hidden, still needs to load frames
+  }
+
+  // Create two canvases for cam1 and cam2
+  createVideoCanvas('cam1');
+  createVideoCanvas('cam2');
 </script>
 <script>
   async function initMonitor() {
