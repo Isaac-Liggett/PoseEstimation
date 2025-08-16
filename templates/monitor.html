@@ -4,363 +4,248 @@
 
 {% block content %}
 <style>
-	.monitor-layout {
-		display: grid;
-		grid-template-columns: 1fr 340px;
-		gap: 16px;
-	}
+  .monitor-layout { display:grid; grid-template-columns: 1fr 340px; gap:16px; }
+  .stage { display:flex; flex-direction:column; gap:12px; }
 
-	.stage {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
+  #viewport {
+    position:relative; width:100%; height:60vh; background:#000;
+    border:1px solid var(--border); border-radius:12px;
+    box-shadow: inset 0 0 40px rgba(0,0,0,.35);
+  }
+  .hud { position:absolute; inset:10px auto auto 10px; display:flex; gap:8px; align-items:center; pointer-events:none; }
+  .badge.rec { background:#2a0e12; border:1px solid #b02a2a; color:#ff6961; }
+  .hidden { display:none; }
 
-	/* Viewport area */
-	#viewport {
-		position: relative;
-		width: 100%;
-		height: 60vh;
-		background: #000;
-		border: 1px solid var(--border);
-		border-radius: 12px;
-		box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.35);
-	}
+  .controls { display:flex; gap:8px; align-items:center; }
+  .btn.danger { background:linear-gradient(135deg,#ff5757,#ff2a2a); border-color:#c02020; color:#fff; }
+  .grow { flex:1 1 auto; }
 
-	.hud {
-		position: absolute;
-		inset: 10px auto auto 10px;
-		display: flex;
-		gap: 8px;
-		align-items: center;
-		pointer-events: none;
-	}
+  .timeline { background:#0d131a; border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
+  .timeline input[type="range"] { width:100%; }
+  .timebar { display:flex; justify-content:space-between; margin-top:6px; color:var(--muted); }
 
-	.badge.rec {
-		background: #2a0e12;
-		border: 1px solid #b02a2a;
-		color: #ff6961;
-	}
+  .sidebar .sidecard {
+    background:#0f141b; border:1px solid var(--border);
+    border-radius:14px; padding:12px; margin-bottom:16px;
+  }
+  .sidebar h3 { margin:0 0 8px 0; }
+  .sidebar .video { width:100%; aspect-ratio:16/9; border-radius:10px; border:1px solid var(--border); background:#000; margin-bottom:10px; }
 
-	.hidden {
-		display: none;
-	}
-
-	/* Controls row */
-	.controls {
-		display: flex;
-		gap: 8px;
-		align-items: center;
-	}
-
-	.btn.danger {
-		background: linear-gradient(135deg, #ff5757, #ff2a2a);
-		border-color: #c02020;
-		color: #fff;
-	}
-
-	.grow {
-		flex: 1 1 auto;
-	}
-
-	/* Timeline */
-	.timeline {
-		background: #0d131a;
-		border: 1px solid var(--border);
-		border-radius: 10px;
-		padding: 10px 12px;
-	}
-
-	.timeline input[type="range"] {
-		width: 100%;
-	}
-
-	.timebar {
-		display: flex;
-		justify-content: space-between;
-		margin-top: 6px;
-		color: var(--muted);
-	}
-
-	/* Sidebar */
-	.sidebar .sidecard {
-		background: #0f141b;
-		border: 1px solid var(--border);
-		border-radius: 14px;
-		padding: 12px;
-		margin-bottom: 16px;
-	}
-
-	.sidebar h3 {
-		margin: 0 0 8px 0;
-	}
-
-	.sidebar .video {
-		width: 100%;
-		aspect-ratio: 16 / 9;
-		object-fit: cover;
-		border-radius: 10px;
-		border: 1px solid var(--border);
-		background: #000;
-		margin-bottom: 10px;
-	}
-
-	@media (max-width: 980px) {
-		.monitor-layout {
-			grid-template-columns: 1fr;
-		}
-	}
+  @media (max-width:980px){ .monitor-layout{ grid-template-columns:1fr; } }
 </style>
 
 <div class="monitor-layout">
-	<!-- LEFT: 3D stage -->
-	<div class="stage">
-		<div id="viewport">
-			<div class="hud">
-				<span id="recBadge" class="badge rec hidden">● REC</span>
-				<span class="badge"><span id="timer">00:00.0</span></span>
-				<span class="badge">FPS <span id="fps">—</span></span>
-			</div>
-		</div>
+  <!-- LEFT: stage -->
+  <div class="stage">
+    <div id="viewport">
+      <div class="hud">
+        <span id="recBadge" class="badge rec hidden">● REC</span>
+        <span class="badge"><span id="timer">00:00.0</span></span>
+        <span class="badge">FPS <span id="fps">—</span></span>
+      </div>
+    </div>
 
-		<div class="controls">
-			<button class="btn danger" id="btnRecord">● Record</button>
-			<button class="btn" id="btnPause" disabled>Pause</button>
-			<button class="btn" id="btnStop" disabled>Stop</button>
-			<div class="grow"></div>
-			<button class="btn" id="btnPlay">Play</button>
-			<button class="btn" id="btnExport">Export</button>
-		</div>
+    <div class="controls">
+      <button class="btn danger" id="btnRecord">● Record</button>
+      <button class="btn" id="btnPause" disabled>Pause</button>
+      <button class="btn" id="btnStop" disabled>Stop</button>
+      <div class="grow"></div>
+      <button class="btn" id="btnPlay">Play</button>
+      <button class="btn" id="btnExport">Export</button>
+    </div>
 
-		<div class="timeline">
-			<input type="range" id="seek" min="0" max="15000" step="10" value="0" />
-			<div class="timebar">
-				<span id="cur">00:00.0</span>
-				<span id="dur">00:15.0</span>
-			</div>
-		</div>
-	</div>
+    <div class="timeline">
+      <input type="range" id="seek" min="0" max="15000" step="10" value="0" />
+      <div class="timebar">
+        <span id="cur">00:00.0</span>
+        <span id="dur">00:15.0</span>
+      </div>
+    </div>
+  </div>
 
-	<!-- RIGHT: camera previews + rig controls + tips -->
-	<div class="sidebar">
-		<div class="sidecard">
-			<h3>Cameras</h3>
-			<div id="videos-container">
-				<!-- Videos go here -->
-			</div>
-			<div class="row" style="display:flex; gap:8px;">
-				<button class="btn" id="connectCams">Connect</button>
-				<button class="btn" id="flipCams">Flip</button>
-			</div>
-		</div>
+  <!-- RIGHT: cameras + rig controls -->
+  <div class="sidebar">
+    <div class="sidecard">
+      <h3>Cameras</h3>
+      <div id="videos-container"></div>
+      <div class="row" style="display:flex; gap:8px;">
+        <button class="btn" id="connectCams">Connect</button>
+        <button class="btn" id="flipCams">Flip</button>
+      </div>
+    </div>
 
-		<div class="sidecard">
-			<h3>Rig &amp; Animation</h3>
-			<div class="row" style="display:flex; gap:8px; flex-wrap:wrap;">
-				<button class="btn" id="loadRig">Load Rig</button>
-				<button class="btn" id="loadIdle">Idle</button>
-				<button class="btn" id="loadWalk">Walk</button>
-				<button class="btn" id="animPlay">Play</button>
-				<button class="btn" id="animPause">Pause</button>
-				<button class="btn" id="animReset">Reset</button>
-			</div>
-			<small class="muted">Files: <code>/static/models/mixamo_character.fbx</code>, <code>idle.fbx</code>,
-				<code>walk.fbx</code></small>
-		</div>
+    <div class="sidecard">
+      <h3>Rig &amp; Animation</h3>
+      <div class="row" style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn" id="loadRig">Load Rig</button>
+        <button class="btn" id="loadIdle">Idle</button>
+        <button class="btn" id="loadWalk">Walk</button>
+        <button class="btn" id="animPlay">Play</button>
+        <button class="btn" id="animPause">Pause</button>
+        <button class="btn" id="animReset">Reset</button>
+      </div>
+      <small class="muted">Files: <code>/static/models/mixamo_character.fbx</code>, <code>Idle.fbx</code>, <code>Walking.fbx</code></small>
+    </div>
 
-		<div class="sidecard">
-			<h3>Tips</h3>
-			<ul class="muted" style="margin:0; padding-left:18px; line-height:1.6;">
-				<li>Press <b>R</b> to start/stop recording.</li>
-				<li>Press <b>Space</b> to pause/resume.</li>
-				<li>Drag the timeline to scrub.</li>
-			</ul>
-		</div>
-	</div>
+    <div class="sidecard">
+      <h3>Tips</h3>
+      <ul class="muted" style="margin:0; padding-left:18px; line-height:1.6;">
+        <li>Press <b>R</b> to start/stop recording.</li>
+        <li>Press <b>Space</b> to pause/resume.</li>
+        <li>Drag the timeline to scrub.</li>
+      </ul>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<!-- Plain script: record/pause/stop + cameras -->
+<!-- UI controls (record/pause/stop) -->
 <script>
-	console.log("monitor: plain script loaded");
+  console.log("monitor: plain script loaded");
+  const btnRecord = document.getElementById('btnRecord');
+  const btnPause  = document.getElementById('btnPause');
+  const btnStop   = document.getElementById('btnStop');
+  const btnPlay   = document.getElementById('btnPlay');
 
-	// --- RECORD/PAUSE/STOP state machine (UI only) ---
-	const btnRecord = document.getElementById('btnRecord');
-	const btnPause = document.getElementById('btnPause');
-	const btnStop = document.getElementById('btnStop');
-	const btnPlay = document.getElementById('btnPlay');
-	const btnExport = document.getElementById('btnExport');
+  const recBadge  = document.getElementById('recBadge');
+  const timerEl   = document.getElementById('timer');
+  const curEl     = document.getElementById('cur');
+  const durEl     = document.getElementById('dur');
+  const seek      = document.getElementById('seek');
 
-	const recBadge = document.getElementById('recBadge');
-	const timerEl = document.getElementById('timer');
-	const curEl = document.getElementById('cur');
-	const durEl = document.getElementById('dur');
-	const seek = document.getElementById('seek');
+  let state='idle', startMs=0, totalMs=0, tick;
+  const fmt = (ms)=>{ const s=ms/1000, m=Math.floor(s/60), r=(s-m*60).toFixed(1).padStart(4,'0'); return `${String(m).padStart(2,'0')}:${r}`; };
+  function setState(n){ state=n; const recLike=(n==='recording'||n==='paused'); btnPause.disabled=!recLike; btnStop.disabled=!recLike; recBadge.classList.toggle('hidden',n!=='recording'); btnPause.textContent=n==='paused'?'Resume':'Pause'; btnRecord.textContent=n==='recording'?'● Recording':'● Record'; }
+  function tickStart(){ clearInterval(tick); tick=setInterval(()=>{ let e=totalMs; if(state==='recording') e+=performance.now()-startMs; timerEl.textContent=fmt(e); if(state!=='recording') return; seek.max=Math.max(seek.max,Math.round(e)); seek.value=Math.round(e); curEl.textContent=fmt(+seek.value); durEl.textContent=fmt(+seek.max); },50); }
+  btnRecord.addEventListener('click',()=>{ if(state==='idle'||state==='playback'){ totalMs=0; startMs=performance.now(); setState('recording'); tickStart(); }});
+  btnPause.addEventListener('click',()=>{ if(state==='recording'){ totalMs+=performance.now()-startMs; setState('paused'); } else if(state==='paused'){ startMs=performance.now(); setState('recording'); }});
+  btnStop.addEventListener('click',()=>{ if(state==='recording') totalMs+=performance.now()-startMs; clearInterval(tick); setState('playback'); seek.max=totalMs||1; seek.value=0; curEl.textContent=fmt(0); durEl.textContent=fmt(totalMs); timerEl.textContent=fmt(totalMs); });
+  seek.addEventListener('input',()=>{ if(state==='playback'||state==='paused') curEl.textContent=fmt(+seek.value); });
+  window.addEventListener('keydown',(e)=>{ if(/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if(e.code==='KeyR'){ btnRecord.click(); e.preventDefault(); } if(e.code==='Space'){ btnPause.click(); e.preventDefault(); }});
 
-	let state = 'idle', startMs = 0, totalMs = 0, tick;
-	const fmt = (ms) => { const s = ms / 1000, m = Math.floor(s / 60), r = (s - m * 60).toFixed(1).padStart(4, '0'); return `${String(m).padStart(2, '0')}:${r}`; };
-	function setState(n) { state = n; const recLike = (n === 'recording' || n === 'paused'); btnPause.disabled = !recLike; btnStop.disabled = !recLike; recBadge.classList.toggle('hidden', n !== 'recording'); btnPause.textContent = n === 'paused' ? 'Resume' : 'Pause'; btnRecord.textContent = n === 'recording' ? '● Recording' : '● Record'; }
-	function startTicker() { clearInterval(tick); tick = setInterval(() => { let e = totalMs; if (state === 'recording') e += performance.now() - startMs; timerEl.textContent = fmt(e); if (state !== 'recording') return; seek.max = Math.max(seek.max, Math.round(e)); seek.value = Math.round(e); curEl.textContent = fmt(+seek.value); durEl.textContent = fmt(+seek.max); }, 50); }
-	btnRecord.addEventListener('click', () => { if (state === 'idle' || state === 'playback') { totalMs = 0; startMs = performance.now(); setState('recording'); startTicker(); } });
-	btnPause.addEventListener('click', () => { if (state === 'recording') { totalMs += performance.now() - startMs; setState('paused'); } else if (state === 'paused') { startMs = performance.now(); setState('recording'); } });
-	btnStop.addEventListener('click', () => { if (state === 'recording') totalMs += performance.now() - startMs; clearInterval(tick); setState('playback'); seek.max = totalMs || 1; seek.value = 0; curEl.textContent = fmt(0); durEl.textContent = fmt(totalMs); timerEl.textContent = fmt(totalMs); });
-	seek.addEventListener('input', () => { if (state === 'playback' || state === 'paused') curEl.textContent = fmt(+seek.value); });
-	window.addEventListener('keydown', (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if (e.code === 'KeyR') { btnRecord.click(); e.preventDefault(); } if (e.code === 'Space') { btnPause.click(); e.preventDefault(); } });
+  // FPS HUD
+  const fpsEl=document.getElementById('fps'); let frames=0, last=performance.now();
+  setInterval(()=>{ frames++; const now=performance.now(); if(now-last>=1000){ fpsEl.textContent=String(frames); frames=0; last=now; }},16);
 
-	// Cameras
-	const cam1 = document.getElementById('cam1'), cam2 = document.getElementById('cam2');
-	const connect = document.getElementById('connectCams'), flip = document.getElementById('flipCams');
-	let facingMode = 'environment';
-	connect?.addEventListener('click', async () => { try { const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode }, audio: false }); cam1.srcObject = stream; cam2.srcObject = stream; } catch (err) { alert('Camera error: ' + err); } });
-	flip?.addEventListener('click', () => { facingMode = (facingMode === 'user') ? 'environment' : 'user'; connect.click(); });
-
-	// FPS HUD (decoupled from Three)
-	const fpsEl = document.getElementById('fps'); let frames = 0, last = performance.now();
-	setInterval(() => { frames++; const now = performance.now(); if (now - last >= 1000) { fpsEl.textContent = String(frames); frames = 0; last = now; } }, 16);
+  // Local camera preview (safe no-op if elements aren’t present)
+  const connect=document.getElementById('connectCams'), flip=document.getElementById('flipCams');
+  let facing='environment', cam1=document.getElementById('cam1'), cam2=document.getElementById('cam2');
+  connect?.addEventListener('click', async ()=>{ if(!cam1||!cam2) return; try{ const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing},audio:false}); cam1.srcObject=stream; cam2.srcObject=stream; }catch(err){ alert('Camera error: '+err); }});
+  flip?.addEventListener('click', ()=>{ facing=(facing==='user')?'environment':'user'; connect?.click(); });
 </script>
 
-<!-- Three.js module: rig + animation (all local paths, no import maps) -->
+<!-- IMPORT MAP: lets example modules resolve "three" -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+  }
+}
+</script>
+
+<!-- Three.js (CDN) — rig + animation -->
 <script type="module">
-	console.log("monitor: module script starting");
-	import * as THREE from '/static/js/three.module.js';
-	import { OrbitControls } from '/static/js/OrbitControls.js';
-	import { FBXLoader } from '/static/js/FBXLoader.js';
+  console.log('monitor: CDN rig script start');
 
-	let scene, camera, renderer, controls, clock;
-	let model, mixer, currentAction;
-	const boneMap = {};
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
-	function initThree() {
-		const container = document.getElementById('viewport');
-		scene = new THREE.Scene(); scene.background = new THREE.Color(0x000000);
-		camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 1000);
-		camera.position.set(1.6, 1.8, 3.2);
-		renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(container.clientWidth, container.clientHeight);
-		container.appendChild(renderer.domElement);
-		controls = new OrbitControls(camera, renderer.domElement); controls.target.set(0, 1.1, 0);
-		clock = new THREE.Clock();
-		scene.add(new THREE.AxesHelper(0.5));
-		const hemi = new THREE.HemisphereLight(0xffffff, 0x222244, 1.2); scene.add(hemi);
-		const dir = new THREE.DirectionalLight(0xffffff, 1.0); dir.position.set(3, 5, 2); scene.add(dir);
-		const floor = new THREE.Mesh(new THREE.CircleGeometry(1.0, 64), new THREE.MeshStandardMaterial({ color: 0x1b2330, metalness: 0.1, roughness: 0.9 }));
-		floor.rotation.x = -Math.PI / 2; floor.position.y = 0; scene.add(floor);
-		window.addEventListener('resize', () => { camera.aspect = container.clientWidth / container.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(container.clientWidth, container.clientHeight); });
-		(function loop() { const dt = clock.getDelta(); if (mixer) mixer.update(dt); controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); })();
-	}
+  let scene, camera, renderer, controls, clock;
+  let model, mixer, currentAction;
+  const boneMap = {};
 
-	function buildBoneMap(root) { for (const k of Object.keys(boneMap)) delete boneMap[k]; root.traverse(o => { if (o.isBone) { boneMap[simplify(o.name)] = o; } }); }
-	const simplify = (n) => n.toLowerCase().replace(/^mixamorig:*/, '').replace(/[^a-z]/g, '');
+  function initThree(){
+    const container = document.getElementById('viewport');
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
 
-	function loadCharacter(path) {
-		const loader = new FBXLoader();
-		loader.load(path, (fbx) => {
-			if (model) scene.remove(model);
-			model = fbx; model.scale.setScalar(0.01);
-			scene.add(model);
-			mixer = new THREE.AnimationMixer(model);
-			buildBoneMap(model);
-			currentAction = null;
-			console.log('Character loaded');
-		}, undefined, (e) => console.error('Character load error', e));
-	}
+    camera = new THREE.PerspectiveCamera(50, container.clientWidth/container.clientHeight, 0.1, 1000);
+    camera.position.set(1.6, 1.8, 3.2);
 
-	function loadAnimation(path) {
-		if (!model) { alert('Load the rig first.'); return; }
-		const loader = new FBXLoader();
-		loader.load(path, (anim) => {
-			const clip = anim?.animations?.[0];
-			if (!clip) { alert('No animation in file.'); return; }
-			if (currentAction) currentAction.stop();
-			currentAction = mixer.clipAction(clip);
-			currentAction.reset().play();
-			currentAction.paused = false;
-			console.log('Animation loaded:', clip.name || path);
-		}, undefined, (e) => console.error('Animation load error', e));
-	}
+    renderer = new THREE.WebGLRenderer({ antialias:true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
 
-	// Bind rig/animation buttons
-	document.getElementById('loadRig').addEventListener('click', () => {
-		if (!scene) initThree();
-		loadCharacter('/static/models/mixamo_character.fbx');
-	});
-	document.getElementById('loadIdle').addEventListener('click', () => loadAnimation('/static/models/Idle.fbx'));
-	document.getElementById('loadWalk').addEventListener('click', () => loadAnimation('/static/models/Walking.fbx'));
-	document.getElementById('animPlay').addEventListener('click', () => { if (currentAction) currentAction.paused = false; });
-	document.getElementById('animPause').addEventListener('click', () => { if (currentAction) currentAction.paused = true; });
-	document.getElementById('animReset').addEventListener('click', () => { if (currentAction) currentAction.reset(); });
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1.1, 0);
 
-	// Map main Play button to animation play
-	document.getElementById('btnPlay').addEventListener('click', () => { if (currentAction) currentAction.paused = false; });
+    clock = new THREE.Clock();
 
-	console.log("monitor: module script bound");
+    scene.add(new THREE.AxesHelper(0.5));
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x222244, 1.2));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0); dir.position.set(3,5,2); scene.add(dir);
+
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(1.0, 64),
+      new THREE.MeshStandardMaterial({ color:0x1b2330, metalness:0.1, roughness:0.9 })
+    );
+    floor.rotation.x = -Math.PI/2; floor.position.y = 0; scene.add(floor);
+
+    window.addEventListener('resize', ()=> {
+      camera.aspect = container.clientWidth/container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    (function loop(){ requestAnimationFrame(loop); const dt=clock.getDelta(); if(mixer) mixer.update(dt); controls.update(); renderer.render(scene,camera); })();
+  }
+
+  function simplify(n){ return n.toLowerCase().replace(/^mixamorig:*/,'').replace(/[^a-z]/g,''); }
+  function buildBoneMap(root){ for(const k of Object.keys(boneMap)) delete boneMap[k]; root.traverse(o=>{ if(o.isBone) boneMap[simplify(o.name)] = o; }); }
+
+  function loadCharacter(path){
+    const loader = new FBXLoader();
+    loader.load(path, (fbx)=>{
+      if(model) scene.remove(model);
+      model = fbx;
+      model.scale.setScalar(0.01); // Mixamo units
+      scene.add(model);
+      mixer = new THREE.AnimationMixer(model);
+      buildBoneMap(model);
+      currentAction = null;
+      console.log('Character loaded');
+    }, undefined, (e)=>console.error('Character load error', e));
+  }
+
+  function loadAnimation(path){
+    if(!model){ alert('Load the rig first.'); return; }
+    const loader = new FBXLoader();
+    loader.load(path, (anim)=>{
+      const clip = anim?.animations?.[0];
+      if(!clip){ alert('No animation in file.'); return; }
+      if(currentAction) currentAction.stop();
+      currentAction = mixer.clipAction(clip);
+      currentAction.reset().play();
+      currentAction.paused = false;
+      console.log('Animation loaded:', clip.name || path);
+    }, undefined, (e)=>console.error('Animation load error', e));
+  }
+
+  // Button bindings
+  document.getElementById('loadRig').addEventListener('click', ()=>{
+    if(!scene) initThree();
+    loadCharacter('/static/models/mixamo_character.fbx');
+  });
+  document.getElementById('loadIdle').addEventListener('click', ()=> loadAnimation('/static/models/Idle.fbx'));
+  document.getElementById('loadWalk').addEventListener('click', ()=> loadAnimation('/static/models/Walking.fbx'));
+  document.getElementById('animPlay').addEventListener('click',  ()=> { if(currentAction) currentAction.paused = false; });
+  document.getElementById('animPause').addEventListener('click', ()=> { if(currentAction) currentAction.paused = true; });
+  document.getElementById('animReset').addEventListener('click', ()=> { if(currentAction) currentAction.reset(); });
+  document.getElementById('btnPlay').addEventListener('click',     ()=> { if(currentAction) currentAction.paused = false; });
+
+  console.log('monitor: CDN rig script ready');
 </script>
 
-<!-- WebRTC client script -->
+<!-- WebRTC camera tiles (from your relay) -->
 <script>
-	const webrtc_url = "{{ webrtcurl }}";
-	const videos_container = document.querySelector("#videos-container");
-// <img id="videoStream" src="/view?cam=cam1" onerror="this.src='data:image/svg+xml,<svg xmlns=&#39;http://www.w3.org/2000/svg&#39; width=640 height=480><rect width=640 height=480 fill=black/></svg>';">
-			
-	const video1 = document.createElement("img");
-	video1.src = `${webrtc_url}/view?cam=cam1`;
-	video1.classList = "video";
-	video1.onerror = (elem) => {
-		elem.src='data:image/svg+xml,<svg xmlns=&#39;http://www.w3.org/2000/svg&#39; width=640 height=480><rect width=640 height=480 fill=black/></svg>';
-	}
+  const webrtc_url = "{{ webrtcurl }}";
+  const wrap = document.getElementById('videos-container');
 
-	const video2 = document.createElement("img");
-	video2.src = `${webrtc_url}/view?cam=cam2`;
-	video2.classList = "video";
-	video2.onerror = (elem) => {
-		elem.src='data:image/svg+xml,<svg xmlns=&#39;http://www.w3.org/2000/svg&#39; width=640 height=480><rect width=640 height=480 fill=black/></svg>';
-	}
-
-	videos_container.appendChild(video1);
-	videos_container.appendChild(video2);
-
-	// console.log("Monitor script starting");
-
-	// const videosContainer = document.getElementById("videos-container");
-
-	// const pc = new RTCPeerConnection();
-
-	// // Create data channel for pose data
-	// const poseChannel = pc.createDataChannel("pose");
-	// poseChannel.onmessage = e => console.log("Pose data:", JSON.parse(e.data));
-
-	// // Pre-create video elements for cam1/cam2
-	// const videos = ["cam1", "cam2"].map(name => {
-	// 	const video = document.createElement("video");
-	// 	video.autoplay = true;
-	// 	video.playsInline = true;
-	// 	videosContainer.appendChild(video);
-	// 	return video;
-	// });
-
-	// // Handle incoming tracks
-	// pc.ontrack = e => {
-	// 	// First empty video element gets the stream
-	// 	const emptyVideo = videos.find(v => !v.srcObject);
-	// 	if (emptyVideo) emptyVideo.srcObject = e.streams[0];
-	// };
-
-	// // Send monitor offer to server
-	// async function startMonitor() {
-	// 	const offer = await pc.createOffer();
-	// 	await pc.setLocalDescription(offer);
-
-	// 	const res = await fetch("http://localhost:8080/monitor_offer", {
-	// 		method: "POST",
-	// 		headers: { "Content-Type": "application/json" },
-	// 		body: JSON.stringify(pc.localDescription)
-	// 	});
-
-	// 	const answer = await res.json();
-	// 	await pc.setRemoteDescription(answer);
-	// }
-
-	// startMonitor();
+  const v1 = document.createElement('iframe'); v1.src = `${webrtc_url}/view?cam=cam1`; v1.className='video';
+  const v2 = document.createElement('iframe'); v2.src = `${webrtc_url}/view?cam=cam2`; v2.className='video';
+  wrap.appendChild(v1); wrap.appendChild(v2);
 </script>
-
 {% endblock %}
