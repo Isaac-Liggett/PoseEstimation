@@ -13,7 +13,7 @@
     box-shadow: inset 0 0 40px rgba(0,0,0,.35);
   }
   .hud { position:absolute; inset:10px auto auto 10px; display:flex; gap:8px; align-items:center; pointer-events:none; }
-  .badge.rec { background:#2a0e12; border:1px solid #b02a2a; color:#ff6961; }
+  .badge.rec { background:#2a0e12; border:1px solid #b02a2a; color:#fd645c; }
   .hidden { display:none; }
 
   .controls { display:flex; gap:8px; align-items:center; }
@@ -145,6 +145,8 @@
 }
 </script>
 
+
+
 <!-- Three.js (CDN) — rig + animation -->
 <script type="module">
   console.log('monitor: CDN rig script start');
@@ -197,18 +199,20 @@
   function buildBoneMap(root){ for(const k of Object.keys(boneMap)) delete boneMap[k]; root.traverse(o=>{ if(o.isBone) boneMap[simplify(o.name)] = o; }); }
 
   function loadCharacter(path){
-    const loader = new FBXLoader();
-    loader.load(path, (fbx)=>{
-      if(model) scene.remove(model);
-      model = fbx;
-      model.scale.setScalar(0.01); // Mixamo units
-      scene.add(model);
-      mixer = new THREE.AnimationMixer(model);
-      buildBoneMap(model);
-      currentAction = null;
-      console.log('Character loaded');
-    }, undefined, (e)=>console.error('Character load error', e));
-  }
+  const loader = new FBXLoader();
+  loader.load(path, (fbx)=>{
+    if(model) scene.remove(model);
+    model = fbx;
+    model.scale.setScalar(0.01); // Mixamo units
+    scene.add(model);
+    mixer = new THREE.AnimationMixer(model);
+    buildBoneMap(model);
+    captureBind(); // <--- ✅ ADD THIS LINE
+    currentAction = null;
+    console.log('Character loaded');
+  }, undefined, (e)=>console.error('Character load error', e));
+}
+
 
   function loadAnimation(path){
     if(!model){ alert('Load the rig first.'); return; }
@@ -237,6 +241,182 @@
   document.getElementById('btnPlay').addEventListener('click',     ()=> { if(currentAction) currentAction.paused = false; });
 
   console.log('monitor: CDN rig script ready');
+
+  // ---- Pose bridge (drop-in) ----
+const PoseBridge = (() => {
+  const listeners = new Set();
+  return {
+    on(fn)  { listeners.add(fn); return () => listeners.delete(fn); },
+    emit(fr){ for (const fn of listeners) fn(fr); },
+    // simple test generator (press G in browser console to start/stop)
+    _mock(start=true){
+      if (start) {
+        let t=0;
+        this._timer = setInterval(()=>{
+          // very rough sine-wave elbows/knees; replace with file/playback if you like
+          const L = Array.from({length:33},()=>({x:0,y:0,z:0,v:1}));
+          const hipL=23, hipR=24, shL=11, shR=12, elL=13, elR=14, wrL=15, wrR=16, knL=25, knR=26, anL=27, anR=28;
+          // base T-pose-ish scaffold
+          L[hipL]={x:-0.1,y:-0.5,z:0,v:1}; L[hipR]={x:0.1,y:-0.5,z:0,v:1};
+          L[shL]={x:-0.2,y:0.1,z:0,v:1};   L[shR]={x:0.2,y:0.1,z:0,v:1};
+          L[elL]={x:-0.35,y:0.0+0.05*Math.sin(t),z:0,v:1};
+          L[elR]={x: 0.35,y:0.0-0.05*Math.sin(t),z:0,v:1};
+          L[wrL]={x:-0.5 ,y:0.0+0.08*Math.sin(t),z:0,v:1};
+          L[wrR]={x: 0.5 ,y:0.0-0.08*Math.sin(t),z:0,v:1};
+          L[knL]={x:-0.08,y:-0.95+0.05*Math.sin(t*0.7),z:0,v:1};
+          L[knR]={x: 0.08,y:-0.95-0.05*Math.sin(t*0.7),z:0,v:1};
+          L[anL]={x:-0.08,y:-1.2 ,z:0,v:1};
+          L[anR]={x: 0.08,y:-1.2 ,z:0,v:1};
+          PoseBridge.emit({t:performance.now()/1000, source:"mock", space:"normalized_image", landmarks:L});
+          t += 0.08;
+        }, 33);
+      } else { clearInterval(this._timer); }
+    }
+  };
+})();
+window.PoseBridge = PoseBridge; // for easy access in console
+
+// ===== PUBLIC API your teammate will call =====
+
+// 1) Send BlazePose 33 landmarks (either array of {x,y,z,visibility?} OR flat array length 99)
+window.updatePose33 = function updatePose33(landmarks, space = 'normalized_image') {
+  let L;
+
+  // A) landmarks = [{x,y,z,visibility?}, ... 33 items]
+  if (Array.isArray(landmarks) && typeof landmarks[0] === 'object') {
+    L = landmarks.map(p => ({
+      x: +p.x || 0,
+      y: +p.y || 0,
+      z: +p.z || 0,
+      v: p.visibility ?? p.v ?? 1
+    }));
+  } else {
+    // B) landmarks = [x0,y0,z0, x1,y1,z1, ...] length 99
+    const a = landmarks;
+    L = Array.from({ length: 33 }, (_, i) => ({
+      x: +a[i * 3 + 0] || 0,
+      y: +a[i * 3 + 1] || 0,
+      z: +a[i * 3 + 2] || 0,
+      v: 1
+    }));
+  }
+
+  // hand the frame to the retargeter (this also stops any baked action)
+  PoseBridge.emit({
+    t: performance.now() / 1000,
+    source: 'live',
+    space,                 // 'normalized_image' (default) or 'world'
+    landmarks: L
+  });
+};
+
+// 2) Helper if your teammate has pixel coords (x,y in pixels, z optional)
+window.updatePose33Pixels = function updatePose33Pixels(pointsPx, width, height) {
+  const L = pointsPx.map(p => {
+    const x = p[0] / width;
+    const y = p[1] / height;
+    const z = (p[2] ?? 0);
+    const v = (p[3] ?? 1);
+    return { x, y, z, v };
+  });
+  window.updatePose33(L, 'normalized_image');
+};
+
+// 3) Stop live driving (so Idle/Walk buttons work again)
+window.stopLivePose = function stopLivePose() {
+  PoseBridge._mock(false); // ensure mock is off if it was running
+  // Just stop calling updatePose33; the rig will stay on the last pose
+};
+
+
+function normalizeBlazePose(L, space = "world") {
+  const toV3 = (p) => new THREE.Vector3(p.x, p.y, p.z);
+  const hipL = toV3(L[23]);
+  const hipR = toV3(L[24]);
+
+  // Flip Y and Z if from image space (e.g., BlazePose normalized)
+  if (space === "normalized_image") {
+    for (const p of L) {
+      p.y = -p.y;
+      p.z = -p.z;
+    }
+  }
+
+  const root = hipL.clone().add(hipR).multiplyScalar(0.5);
+  const scale = hipL.distanceTo(hipR) || 1.0;
+
+  const out = L.map(p => {
+    const v = new THREE.Vector3(p.x, p.y, p.z);
+    v.sub(root).divideScalar(scale);
+    return { v, conf: (p.v ?? 1) };
+  });
+
+  return out; // returns [{v: THREE.Vector3, conf: number}, ...]
+}
+
+
+// --- Retarget mapping (BlazePose 33 -> Mixamo/YBot) ---
+const DRIVEN = {
+  "leftarm":      [11,13],
+  "leftforearm":  [13,15],
+  "rightarm":     [12,14],
+  "rightforearm": [14,16],
+  "leftupleg":    [23,25],
+  "leftleg":      [25,27],
+  "rightupleg":   [24,26],
+  "rightleg":     [26,28],
+};
+
+const BIND = {}; // boneName -> {dir: Vector3, worldRot: Quaternion}
+
+// Capture bind pose once (direction & world rotation)
+function captureBind() {
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Quaternion();
+  for (const name in DRIVEN) {
+    const bone = boneMap[name];
+    if (!bone || bone.children.length === 0) continue;
+    bone.getWorldPosition(a);
+    bone.children[0].getWorldPosition(b);
+    const dir = b.clone().sub(a).normalize();
+    bone.getWorldQuaternion(q);
+    BIND[name] = { dir, worldRot: q.clone() };
+  }
+}
+
+// Apply pose frame to skeleton
+function applyBlazePoseFrame(frame) {
+  if (!model) return;
+  const L = normalizeBlazePose(frame.landmarks, frame.space);
+  const seg = (i, j) => L[j].v.clone().sub(L[i].v).normalize();
+
+  for (const name in DRIVEN) {
+    const idx = DRIVEN[name];
+    const bone = boneMap[name];
+    const bind = BIND[name];
+    if (!bone || !bind) continue;
+
+    const targetDir = seg(idx[0], idx[1]);
+    if (!isFinite(targetDir.x)) continue;
+
+    const delta = new THREE.Quaternion().setFromUnitVectors(bind.dir, targetDir);
+    const worldNew = delta.clone().multiply(bind.worldRot);
+
+    const parentWorld = new THREE.Quaternion();
+    bone.parent.getWorldQuaternion(parentWorld);
+    const localNew = parentWorld.invert().multiply(worldNew);
+
+    bone.quaternion.slerp(localNew, 0.5); // smooth
+  }
+}
+
+// Subscribe to pose stream
+PoseBridge.on((frame) => {
+  if (currentAction) { currentAction.stop(); currentAction = null; }
+  applyBlazePoseFrame(frame);
+});
+
+
+
 </script>
 
 <!-- WebRTC camera tiles (from your relay) -->
