@@ -24,7 +24,11 @@ frame_buffers = {
     "cam2": deque(maxlen=30)
 }
 
+video_tasks = {"cam1": None, "cam2": None}
+
 skeleton_channels = set() # monitors
+
+MAX_TIMESTAMP_DIFF = 0.05  # maximum allowed difference in seconds (50 ms)
 
 import time
 import json
@@ -57,7 +61,8 @@ async def camera_offer(request):
         logging.info(f"{slot_name} track stored")
 
         # Start processing frames into deque buffer
-        asyncio.create_task(process_video(camera_tracks[slot_name], slot_name))
+        task = asyncio.create_task(process_video(camera_tracks[slot_name], slot_name, pc))
+        video_tasks[slot_name] = task
 
     await pc.setRemoteDescription(offer)
     answer = await pc.createAnswer()
@@ -115,28 +120,57 @@ async def _send_hello(channel):
         logging.warning(f"Failed to send hello: {e}")
 
 # --------- Video processing ----------
-async def process_video(track: VideoStreamTrack, slot_name: str):
+async def process_video(track: VideoStreamTrack, slot_name: str, pc: RTCPeerConnection):
     while True:
         try:
             frame = await track.recv()
         except MediaStreamError:
             logging.warning(f"{slot_name} track closed")
+
+            task = video_tasks.get(slot_name)
+            if task:
+                task.cancel()
+                video_tasks[slot_name] = None
+
             camera_tracks[slot_name] = None
+            frame_buffers[slot_name].clear()
+            frame_buffers[slot_name].append(np.zeros((480, 640, 3), dtype=np.uint8))
+
+            await pc.close()
+            pcs.discard(pc)
+
             break
         
         img = frame.to_ndarray(format="bgr24")
         
         # Add to frame buffer
-        frame_buffers[slot_name].append(img)
+        timestamp = time.time()
+        frame_buffers[slot_name].append((timestamp, img))
         await asyncio.sleep(0)  # yield control
 
 def get_synchronized_frames():
-    if frame_buffers["cam1"] and frame_buffers["cam2"]:
-        # Grab the latest frame from each camera
-        frame1 = frame_buffers["cam1"][-1]
-        frame2 = frame_buffers["cam2"][-1]
-        return frame1, frame2
-    return None, None
+    """
+    Return the latest pair of frames whose timestamps are within MAX_TIMESTAMP_DIFF.
+    Drop frames that are too old or too far apart.
+    """
+    if len(frame_buffers["cam1"]) == 0 or len(frame_buffers["cam2"]) == 0:
+        return None, None
+
+    # Get latest frame from cam1
+    ts1, frame1 = frame_buffers["cam1"][-1]
+
+    # Find closest frame in cam2
+    ts2, frame2 = min(frame_buffers["cam2"], key=lambda x: abs(x[0] - ts1))
+
+    # If too far apart, drop the older frame(s)
+    if abs(ts1 - ts2) > MAX_TIMESTAMP_DIFF:
+        # Remove older frames from cam1
+        frame_buffers["cam1"] = deque([(t, f) for t, f in frame_buffers["cam1"] if t > ts2], maxlen=30)
+        # Remove older frames from cam2
+        frame_buffers["cam2"] = deque([(t, f) for t, f in frame_buffers["cam2"] if t > ts1], maxlen=30)
+        return None, None
+
+    return frame1, frame2
 
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(static_image_mode=False, model_complexity=1)
@@ -258,18 +292,40 @@ async def mjpeg_stream(request):
     await resp.prepare(request)
 
     while True:
-        if frame_buffers[cam]:
-            # Use the latest frame
-            img = frame_buffers[cam][-1]
-        else:
-            # Camera not available → black frame
-            img = np.zeros((480, 640, 3), dtype=np.uint8)
+        try:
+            # Use latest frame or black frame if empty
+            if frame_buffers[cam]:
+                ts, img = frame_buffers[cam][-1]
+            else:
+                img = np.zeros((480, 640, 3), dtype=np.uint8)
 
-        ret, jpeg = cv2.imencode(".jpg", img)
-        if ret:
-            await resp.write(b"--frame\r\n"
-                             b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n")
-        await asyncio.sleep(1/30)  # ~30 FPS
+            # Resize and encode
+            img_small = cv2.resize(img, (320, 240))
+            ret, jpeg = cv2.imencode(".jpg", img_small, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+
+            if ret:
+                await resp.write(b"--frame\r\n"
+                                 b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n")
+                await resp.drain()  # flush
+
+            await asyncio.sleep(1/30)  # ~30 FPS
+
+        except ConnectionResetError:
+            logging.info(f"Client disconnected from {cam} MJPEG stream")
+            break
+        except Exception as e:
+            logging.warning(f"MJPEG streaming error: {e}")
+            # send a placeholder black frame
+            img = np.zeros((240, 320, 3), dtype=np.uint8)
+            ret, jpeg = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+            if ret:
+                try:
+                    await resp.write(b"--frame\r\n"
+                                     b"Content-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n")
+                    await resp.drain()
+                except:
+                    break
+
 
 # --------- Cleanup ----------
 async def on_shutdown(app):

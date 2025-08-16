@@ -546,6 +546,7 @@
     skeletonChannel.onmessage = (ev) => {
       const raw = JSON.parse(ev.data); // raw = [[x,y,z], ...]
       const data = raw["points"];
+      // console.log(data);
 
       // Convert to {x,y,z,v} objects
       const landmarks = data.map(p => ({
