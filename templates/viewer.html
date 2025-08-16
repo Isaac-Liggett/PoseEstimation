@@ -1,0 +1,23 @@
+<video id="video" autoplay playsinline></video>
+<script>
+    const pc = new RTCPeerConnection();
+    const videoElem = document.getElementById('video');
+    const baseUrl = `${window.location.protocol}//${window.location.host.split(":")[0]}`;
+    const webrtc_url = "{{ webrtcurl }}";
+
+    pc.ontrack = e => videoElem.srcObject = e.streams[0];
+
+    async function startViewer(cam) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        const res = await fetch(`${webrtc_url}/viewer_offer?cam=${cam}`, {
+            method: 'POST',
+            body: JSON.stringify({ sdp: pc.localDescription }),
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const answer = await res.json();
+        await pc.setRemoteDescription(answer);
+    }
+
+    startViewer("0"); // or cam2
+</script>

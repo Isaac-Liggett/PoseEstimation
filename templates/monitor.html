@@ -95,7 +95,7 @@
 		margin: 0 0 8px 0;
 	}
 
-	.sidebar video {
+	.sidebar .video {
 		width: 100%;
 		aspect-ratio: 16 / 9;
 		object-fit: cover;
@@ -298,48 +298,69 @@
 
 <!-- WebRTC client script -->
 <script>
-	console.log("Monitor script starting");
-
-	const videosContainer = document.getElementById("videos-container");
-
-	const pc = new RTCPeerConnection();
-
-	// Create data channel for pose data
-	const poseChannel = pc.createDataChannel("pose");
-	poseChannel.onmessage = e => console.log("Pose data:", JSON.parse(e.data));
-
-	// Pre-create video elements for cam1/cam2
-	const videos = ["cam1", "cam2"].map(name => {
-		const video = document.createElement("video");
-		video.autoplay = true;
-		video.playsInline = true;
-		videosContainer.appendChild(video);
-		return video;
-	});
-
-	// Handle incoming tracks
-	pc.ontrack = e => {
-		// First empty video element gets the stream
-		const emptyVideo = videos.find(v => !v.srcObject);
-		if (emptyVideo) emptyVideo.srcObject = e.streams[0];
-	};
-
-	// Send monitor offer to server
-	async function startMonitor() {
-		const offer = await pc.createOffer();
-		await pc.setLocalDescription(offer);
-
-		const res = await fetch("http://localhost:8080/monitor_offer", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(pc.localDescription)
-		});
-
-		const answer = await res.json();
-		await pc.setRemoteDescription(answer);
+	const webrtc_url = "{{ webrtcurl }}";
+	const videos_container = document.querySelector("#videos-container");
+// <img id="videoStream" src="/view?cam=cam1" onerror="this.src='data:image/svg+xml,<svg xmlns=&#39;http://www.w3.org/2000/svg&#39; width=640 height=480><rect width=640 height=480 fill=black/></svg>';">
+			
+	const video1 = document.createElement("img");
+	video1.src = `${webrtc_url}/view?cam=cam1`;
+	video1.classList = "video";
+	video1.onerror = (elem) => {
+		elem.src='data:image/svg+xml,<svg xmlns=&#39;http://www.w3.org/2000/svg&#39; width=640 height=480><rect width=640 height=480 fill=black/></svg>';
 	}
 
-	startMonitor();
+	const video2 = document.createElement("img");
+	video2.src = `${webrtc_url}/view?cam=cam2`;
+	video2.classList = "video";
+	video2.onerror = (elem) => {
+		elem.src='data:image/svg+xml,<svg xmlns=&#39;http://www.w3.org/2000/svg&#39; width=640 height=480><rect width=640 height=480 fill=black/></svg>';
+	}
+
+	videos_container.appendChild(video1);
+	videos_container.appendChild(video2);
+
+	// console.log("Monitor script starting");
+
+	// const videosContainer = document.getElementById("videos-container");
+
+	// const pc = new RTCPeerConnection();
+
+	// // Create data channel for pose data
+	// const poseChannel = pc.createDataChannel("pose");
+	// poseChannel.onmessage = e => console.log("Pose data:", JSON.parse(e.data));
+
+	// // Pre-create video elements for cam1/cam2
+	// const videos = ["cam1", "cam2"].map(name => {
+	// 	const video = document.createElement("video");
+	// 	video.autoplay = true;
+	// 	video.playsInline = true;
+	// 	videosContainer.appendChild(video);
+	// 	return video;
+	// });
+
+	// // Handle incoming tracks
+	// pc.ontrack = e => {
+	// 	// First empty video element gets the stream
+	// 	const emptyVideo = videos.find(v => !v.srcObject);
+	// 	if (emptyVideo) emptyVideo.srcObject = e.streams[0];
+	// };
+
+	// // Send monitor offer to server
+	// async function startMonitor() {
+	// 	const offer = await pc.createOffer();
+	// 	await pc.setLocalDescription(offer);
+
+	// 	const res = await fetch("http://localhost:8080/monitor_offer", {
+	// 		method: "POST",
+	// 		headers: { "Content-Type": "application/json" },
+	// 		body: JSON.stringify(pc.localDescription)
+	// 	});
+
+	// 	const answer = await res.json();
+	// 	await pc.setRemoteDescription(answer);
+	// }
+
+	// startMonitor();
 </script>
 
 {% endblock %}
