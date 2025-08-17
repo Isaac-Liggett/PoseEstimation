@@ -196,67 +196,27 @@ async def broadcast_skeleton(points_3d):
     for ch in dead:
         skeleton_channels.discard(ch)
 
-async def process_3d_pose():
-    # Camera intrinsics
+async def process_3d_pose():  # keeping the name so other code works
     image_width = 640
     image_height = 480
-    FOV_deg = 80
-    FOV_rad = np.deg2rad(FOV_deg)
-
-    fx = (image_width / 2) / np.tan(FOV_rad / 2)
-    fy = fx  # square pixels
-    cx = image_width / 2
-    cy = image_height / 2
-
-    K = np.array([
-        [fx, 0, cx],
-        [0, fy, cy],
-        [0,  0,  1]
-    ])
-
-    # Camera extrinsics
-    R1, t1 = np.eye(3), np.zeros((3, 1))
-    R2, t2 = np.eye(3), np.array([[0.5], [0], [0]])  # 0.5m to the right
-
-    P1 = K @ np.hstack((R1, t1))
-    P2 = K @ np.hstack((R2, t2))
 
     while True:
-        frame1, frame2 = get_synchronized_frames()
-        if frame1 is not None and frame2 is not None:
+        frame1, _ = get_synchronized_frames()  # only use cam1
+        if frame1 is not None:
             # Convert to RGB for BlazePose
             rgb1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
-            rgb2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)
-
             res1 = pose.process(rgb1)
-            res2 = pose.process(rgb2)
 
-            if res1.pose_landmarks and res2.pose_landmarks:
+            if res1.pose_landmarks:
                 points_3d = []
+                for lm in res1.pose_landmarks.landmark:
+                    # x = 0, y and z unchanged
+                    points_3d.append([lm.x, lm.y, 0])
 
-                for lm1, lm2 in zip(res1.pose_landmarks.landmark,
-                                    res2.pose_landmarks.landmark):
-                    # Normalized → pixel coordinates
-                    x1 = lm1.x * image_width
-                    y1 = lm1.y * image_height
-                    x2 = lm2.x * image_width
-                    y2 = lm2.y * image_height
-
-                    # OpenCV expects shape (2, N)
-                    pts1 = np.array([[x1], [y1]], dtype=np.float32)
-                    pts2 = np.array([[x2], [y2]], dtype=np.float32)
-
-                    # Triangulate
-                    point_4d = cv2.triangulatePoints(P1, P2, pts1, pts2)
-                    point_4d /= point_4d[3]  # divide by w
-
-                    point_3d = point_4d[:3].reshape(-1)
-
-                    points_3d.append(point_3d)
-
-                # Broadcast to monitors
-                # logging.info("Broadcasting to monitors")
+                # Broadcast to monitors (same as original)
                 asyncio.create_task(broadcast_skeleton(points_3d))
+
+        await asyncio.sleep(1/30)  # ~30fps
 
                 # logging.info(f"3D skeleton points: {points_3d}")
 

@@ -719,10 +719,9 @@ function applyBlazePoseFrame(frame) {
       console.log("Data channel open");
     }
     skeletonChannel.onmessage = (ev) => {
-<<<<<<< HEAD
       const raw = JSON.parse(ev.data); // raw = [[x,y,z], ...]
       const data = raw["points"];
-      // console.log(data);
+      console.log(data);
 
       // Convert to {x,y,z,v} objects
       const landmarks = data.map(p => ({
@@ -744,16 +743,6 @@ function applyBlazePoseFrame(frame) {
       });
 
     };
-=======
-  try {
-    const raw = JSON.parse(ev.data);
-    const pts = raw.points || raw;   // support both {points:[...]} or [...]
-    updatePose33(pts, 'world'); // or 'world' depending on your data
-  } catch (e) {
-    console.error('pose msg parse error', e);
-  }
-};
->>>>>>> d2ac8eddf8c7c7f0ee8daa36408146f27565b907
 
     // Gather ICE candidates
     const candidates = [];
