@@ -232,6 +232,12 @@
   let model, mixer, currentAction;
   const boneMap = {};
 
+  // --- debug helpers (visible from DevTools) ---
+  window.listBones = () => Object.keys(boneMap).sort();
+  window.findBone  = (n) => boneMap[n?.toLowerCase().replace(/^mixamorig:*/, '').replace(/[^a-z]/g,'')];
+  window.showBones = () => console.table(Object.keys(boneMap).sort());
+
+
   function initThree() {
     const container = document.getElementById('viewport');
     scene = new THREE.Scene();
@@ -269,7 +275,11 @@
   }
 
   function simplify(n) { return n.toLowerCase().replace(/^mixamorig:*/, '').replace(/[^a-z]/g, ''); }
-  function buildBoneMap(root) { for (const k of Object.keys(boneMap)) delete boneMap[k]; root.traverse(o => { if (o.isBone) boneMap[simplify(o.name)] = o; }); }
+  function buildBoneMap(root) {
+  for (const k of Object.keys(boneMap)) delete boneMap[k];
+  root.traverse(o => { if (o.isBone) boneMap[simplify(o.name)] = o; });
+  console.log('[bones]', Object.keys(boneMap).sort()); // quick glance
+}
 
   function loadCharacter(path) {
     const loader = new FBXLoader();
@@ -281,6 +291,7 @@
       mixer = new THREE.AnimationMixer(model);
       buildBoneMap(model);
       captureBind();
+      console.log('[bind keys]', Object.keys(BIND));
       currentAction = null;
       console.log('Character loaded');
     }, undefined, (e) => console.error('Character load error', e));
@@ -344,7 +355,7 @@
             L[knR] = { x: 0.08, y: -0.95 - 0.05 * Math.sin(t * 0.7), z: 0, v: 1 };
             L[anL] = { x: -0.08, y: -1.2, z: 0, v: 1 };
             L[anR] = { x: 0.08, y: -1.2, z: 0, v: 1 };
-            PoseBridge.emit({ t: performance.now() / 1000, source: "mock", space: "normalized_image", landmarks: L });
+            PoseBridge.emit({ t: performance.now() / 1000, source: "mock", space: "world", landmarks: L });
             t += 0.08;
           }, 33);
         } else { clearInterval(this._timer); }
@@ -356,36 +367,63 @@
   // ===== PUBLIC API your teammate will call =====
 
   // 1) Send BlazePose 33 landmarks (either array of {x,y,z,visibility?} OR flat array length 99)
-  window.updatePose33 = function updatePose33(landmarks, space = 'normalized_image') {
-    let L;
+  // REPLACE your window.updatePose33 with this version
+window.updatePose33 = function updatePose33(landmarks, space = 'world') {
+  // live badge + debug
+  if (!window.__poseCount) window.__poseCount = 0;
+  window.__poseCount++;
+  if (window.__poseCount % 10 === 1) {
+    console.log('[POSE] frames', window.__poseCount, 'shape',
+      Array.isArray(landmarks) && landmarks[0] && typeof landmarks[0] === 'object'
+        ? 'objects'
+        : Array.isArray(landmarks) && Array.isArray(landmarks[0])
+          ? 'array-of-arrays'
+          : 'flat');
+  }
+  const badge = document.getElementById('recBadge');
+  if (badge) { badge.classList.remove('hidden'); badge.textContent = '● LIVE'; }
 
-    // A) landmarks = [{x,y,z,visibility?}, ... 33 items]
-    if (Array.isArray(landmarks) && typeof landmarks[0] === 'object') {
-      L = landmarks.map(p => ({
-        x: +p.x || 0,
-        y: +p.y || 0,
-        z: +p.z || 0,
-        v: p.visibility ?? p.v ?? 1
-      }));
-    } else {
-      // B) landmarks = [x0,y0,z0, x1,y1,z1, ...] length 99
-      const a = landmarks;
-      L = Array.from({ length: 33 }, (_, i) => ({
-        x: +a[i * 3 + 0] || 0,
-        y: +a[i * 3 + 1] || 0,
-        z: +a[i * 3 + 2] || 0,
-        v: 1
-      }));
-    }
+  let L;
 
-    // hand the frame to the retargeter (this also stops any baked action)
-    PoseBridge.emit({
-      t: performance.now() / 1000,
-      source: 'live',
-      space,                 // 'normalized_image' (default) or 'world'
-      landmarks: L
-    });
-  };
+  // A) [{x,y,z,visibility?}, ...]
+  if (Array.isArray(landmarks) && typeof landmarks[0] === 'object' && !Array.isArray(landmarks[0])) {
+    L = landmarks.map(p => ({
+      x: +p.x || 0,
+      y: +p.y || 0,
+      z: +p.z || 0,
+      v: p.visibility ?? p.v ?? 1
+    }));
+  }
+  // B) [[x,y,z], ...]  <-- your teammate’s format
+  else if (Array.isArray(landmarks) && Array.isArray(landmarks[0])) {
+    L = landmarks.map(a => ({
+      x: +a[0] || 0,
+      y: +a[1] || 0,
+      z: +a[2] || 0,
+      v: (a[3] ?? 1)
+    }));
+  }
+  // C) [x0,y0,z0, x1,y1,z1, ...] length 99
+  else {
+    const a = landmarks;
+    L = Array.from({ length: 33 }, (_, i) => ({
+      x: +a[i * 3 + 0] || 0,
+      y: +a[i * 3 + 1] || 0,
+      z: +a[i * 3 + 2] || 0,
+      v: 1
+    }));
+  }
+
+  // ✅ DO NOT call updatePose33 again here.
+  // Hand the frame to the retargeter:
+  PoseBridge.emit({
+    t: performance.now() / 1000,
+    source: 'live',
+    space,            // 'world' for your numeric coords; use 'normalized_image' if 0..1 with Y-down
+    landmarks: L
+  });
+};
+
 
   // 2) Helper if your teammate has pixel coords (x,y in pixels, z optional)
   window.updatePose33Pixels = function updatePose33Pixels(pointsPx, width, height) {
@@ -396,7 +434,7 @@
       const v = (p[3] ?? 1);
       return { x, y, z, v };
     });
-    window.updatePose33(L, 'normalized_image');
+    window.updatePose33(L, 'world');
   };
 
   // 3) Stop live driving (so Idle/Walk buttons work again)
@@ -405,86 +443,223 @@
     // Just stop calling updatePose33; the rig will stay on the last pose
   };
 
+const AXIS = {
+  MIRROR_X : true,   // set true if left/right is swapped
+  FLIP_Y   : false,    // true if your world has Y-down (most CV outputs)
+  FLIP_Z   : true,    // true if your world has +Z toward camera
+};
 
-  function normalizeBlazePose(L, space = "world") {
-    const toV3 = (p) => new THREE.Vector3(p.x, p.y, p.z);
-    const hipL = toV3(L[23]);
-    const hipR = toV3(L[24]);
+function normalizeBlazePose(L, space='world'){
+  const V = L.map(p => ({x:+p.x||0, y:+p.y||0, z:+p.z||0, v:p.v??p.visibility??1}));
 
-    // Flip Y and Z if from image space (e.g., BlazePose normalized)
-    if (space === "normalized_image") {
-      for (const p of L) {
-        p.y = -p.y;
-        p.z = -p.z;
-      }
+  // axis fixes for 'world'
+  if (space === 'world') {
+    for (const p of V){
+      if (AXIS.MIRROR_X) p.x = -p.x;
+      if (AXIS.FLIP_Y)   p.y = -p.y;
+      if (AXIS.FLIP_Z)   p.z = -p.z;
     }
-
-    const root = hipL.clone().add(hipR).multiplyScalar(0.5);
-    const scale = hipL.distanceTo(hipR) || 1.0;
-
-    const out = L.map(p => {
-      const v = new THREE.Vector3(p.x, p.y, p.z);
-      v.sub(root).divideScalar(scale);
-      return { v, conf: (p.v ?? 1) };
-    });
-
-    return out; // returns [{v: THREE.Vector3, conf: number}, ...]
+  } else if (space === 'normalized_image') {
+    for (const p of V){ p.y = -p.y; p.z = -p.z; } // what you already had
   }
 
+  const to = (i)=>new THREE.Vector3(V[i].x,V[i].y,V[i].z);
+  let hipL = to(23), hipR = to(24);
+  let root = hipL.clone().add(hipR).multiplyScalar(0.5);
+  let scale = hipL.distanceTo(hipR);
 
-  // --- Retarget mapping (BlazePose 33 -> Mixamo/YBot) ---
-  const DRIVEN = {
-    "leftarm": [11, 13],
-    "leftforearm": [13, 15],
-    "rightarm": [12, 14],
-    "rightforearm": [14, 16],
-    "leftupleg": [23, 25],
-    "leftleg": [25, 27],
-    "rightupleg": [24, 26],
-    "rightleg": [26, 28],
+  // fallback if hips are dodgy
+  if (!isFinite(scale) || scale < 1e-3 || scale > 1e6) {
+    const shL = to(11), shR = to(12);
+    root  = shL.clone().add(shR).multiplyScalar(0.5);
+    scale = shL.distanceTo(shR) || 1.0;
+  }
+
+  return V.map(p => {
+    const v = new THREE.Vector3(p.x,p.y,p.z).sub(root).divideScalar(scale);
+    return { v, conf: p.v ?? 1 };
+  });
+}
+
+
+// --- Retarget mapping (BlazePose 33 -> Mixamo/YBot w/ virtual joints) ---
+// Use numbers for BlazePose indices, or strings for virtual points defined below
+const DRIVEN = {
+  // Torso
+ // spine:      ['midhip', 'midshoulder'],  // pelvis -> shoulder center
+ // neck:       ['midshoulder', 'headbase'],// shoulder center -> head base
+//  head:       ['headbase', 0],            // head base -> nose (0)
+
+  // Arms
+  leftarm:      [11, 13],
+  leftforearm:  [13, 15],
+  rightarm:     [12, 14],
+  rightforearm: [14, 16],
+
+  // Hands  (wrist -> index fingertip approx)
+  //lefthand:   [15, 19],
+  righthand:  [16, 20],
+
+  // Legs
+  leftupleg:  [23, 25],
+  leftleg:    [25, 27],
+  rightupleg: [24, 26],
+  rightleg:   [26, 28],
+
+  // Feet  (ankle -> foot index)
+  //leftfoot:   [27, 31],
+  rightfoot:  [28, 32],
+};
+
+const BIND = {}; // boneName -> {dir: Vector3, worldRot: Quaternion}
+
+// Which bone to look-at for each driven bone (fallbacks to 1st child if missing)
+const TIP = {
+  // torso
+  spine:       'neck',
+  neck:        'head',
+  head:        'headtopend',
+
+  // arms
+  leftarm:      'leftforearm',
+  leftforearm:  'lefthand',
+  lefthand:     'lefthandmiddle',   // or 'lefthandindex'
+
+  rightarm:     'rightforearm',
+  rightforearm: 'righthand',
+  righthand:    'righthandmiddle',  // or 'righthandindex'
+
+  // legs
+  leftupleg:    'leftleg',
+  leftleg:      'leftfoot',
+  leftfoot:     'lefttoebase',
+
+  rightupleg:   'rightleg',
+  rightleg:     'rightfoot',
+  rightfoot:    'righttoebase',
+};
+
+
+// Capture bind pose once (direction & world rotation)
+function captureBind() {
+  // clear previous
+  for (const k in BIND) delete BIND[k];
+
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Quaternion();
+  let created = 0;
+
+  for (const name in DRIVEN) {
+    const boneA = boneMap[name];
+    if (!boneA) { console.warn('[bind] missing bone', name); continue; }
+
+    // prefer named tip, else first bone child
+    const tipName = TIP[name];
+    let boneB = (tipName && boneMap[tipName]) ? boneMap[tipName] : null;
+    if (!boneB) {
+      boneB = (boneA.children || []).find(c => c.isBone) || null;
+    }
+    if (!boneB) { console.warn('[bind] no tip/child for', name); continue; }
+
+    boneA.getWorldPosition(a);
+    boneB.getWorldPosition(b);
+    const dir = b.clone().sub(a);
+    const len = dir.length();
+    if (!(len > 1e-6) || !isFinite(len)) { console.warn('[bind] zero len', name); continue; }
+    dir.divideScalar(len);
+
+    boneA.getWorldQuaternion(q);
+    BIND[name] = { dir, worldRot: q.clone() };
+    created++;
+  }
+
+  console.log('[bind] created for', created, 'bones');
+  console.log('[bind]', Object.keys(BIND));
+
+}
+
+
+// Helpers for virtual points
+const _mid = (v1, v2) => v1.clone().add(v2).multiplyScalar(0.5);
+
+// Apply pose frame to skeleton (supports virtual points)
+function applyBlazePoseFrame(frame) {
+  console.log('[frame]', frame.space,
+  'L11', frame.landmarks[11], 'L13', frame.landmarks[13],
+  'L23', frame.landmarks[23], 'L24', frame.landmarks[24]);
+  if (!model) return;
+
+  // Normalize incoming pose to avatar-centric space
+  const L = normalizeBlazePose(frame.landmarks, frame.space);
+
+  if (!window.__dbg || (Date.now()-window.__dbg)>500) {
+  window.__dbg = Date.now();
+  const dHip = L[23].v.distanceTo(L[24].v).toFixed(3);
+  const dLU  = L[11].v.distanceTo(L[13].v).toFixed(3);
+  const dRU  = L[12].v.distanceTo(L[14].v).toFixed(3);
+  console.log('[dist] hip-hip', dHip, 'Lshoulder-elbow', dLU, 'Rshoulder-elbow', dRU);
+}
+
+
+  // Build virtual points used by DRIVEN
+  const v = (i) => L[i].v;
+  const P = {
+    midhip:       _mid(v(23), v(24)),
+    midshoulder:  _mid(v(11), v(12)),
+    headbase:     _mid(v(7),  v(8)),    // between ears; fallback: _mid(v(2), v(5)) for eyes
   };
 
-  const BIND = {}; // boneName -> {dir: Vector3, worldRot: Quaternion}
+  // Resolve either a numeric index or a virtual point name
+  const get = (id) => (typeof id === 'number') ? v(id) : P[id];
 
-  // Capture bind pose once (direction & world rotation)
-  function captureBind() {
-    const a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Quaternion();
-    for (const name in DRIVEN) {
-      const bone = boneMap[name];
-      if (!bone || bone.children.length === 0) continue;
-      bone.getWorldPosition(a);
-      bone.children[0].getWorldPosition(b);
-      const dir = b.clone().sub(a).normalize();
-      bone.getWorldQuaternion(q);
-      BIND[name] = { dir, worldRot: q.clone() };
-    }
+  const SMOOTH = 1.0;
+  let updates = 0; // <-- NEW: Count how many bones were updated
+
+  for (const name in DRIVEN) {
+  const bone = boneMap[name];
+  const bind = BIND[name];
+
+  const [fromId, toId] = DRIVEN[name];
+  const from = typeof fromId === 'number' ? L[fromId]?.v : P[fromId];
+  const to   = typeof toId   === 'number' ? L[toId]?.v   : P[toId];
+
+  if (!bone || !bind) {
+    console.warn('skip: no bind', name);
+    continue;
+  }
+  if (!from || !to) {
+    console.warn('skip: missing pts', name, fromId, toId);
+    continue;
   }
 
-  // Apply pose frame to skeleton
-  function applyBlazePoseFrame(frame) {
-    if (!model) return;
-    const L = normalizeBlazePose(frame.landmarks, frame.space);
-    const seg = (i, j) => L[j].v.clone().sub(L[i].v).normalize();
-
-    for (const name in DRIVEN) {
-      const idx = DRIVEN[name];
-      const bone = boneMap[name];
-      const bind = BIND[name];
-      if (!bone || !bind) continue;
-
-      const targetDir = seg(idx[0], idx[1]);
-      if (!isFinite(targetDir.x)) continue;
-
-      const delta = new THREE.Quaternion().setFromUnitVectors(bind.dir, targetDir);
-      const worldNew = delta.clone().multiply(bind.worldRot);
-
-      const parentWorld = new THREE.Quaternion();
-      bone.parent.getWorldQuaternion(parentWorld);
-      const localNew = parentWorld.invert().multiply(worldNew);
-
-      bone.quaternion.slerp(localNew, 0.5); // smooth
-    }
+  const dir = to.clone().sub(from);
+  const len = dir.length();
+  if (!(len > 1e-6) || !isFinite(len)) {
+    console.warn('skip: bad len', name, len);
+    continue;
   }
+
+  dir.divideScalar(len); // normalize safely
+
+  const delta    = new THREE.Quaternion().setFromUnitVectors(bind.dir, dir);
+  const worldNew = delta.clone().multiply(bind.worldRot);
+  const parentWorld = new THREE.Quaternion();
+  bone.parent.getWorldQuaternion(parentWorld);
+  const localNew = parentWorld.invert().multiply(worldNew);
+
+  bone.quaternion.copy(localNew); // for debugging use full copy (no slerp)
+  updates++;
+
+  console.log('[retarget] bones updated:', updates);
+}
+
+
+  // Log once per second (frame.t is in seconds)
+  if ((Math.floor(frame.t * 10) % 10) === 0) {
+    console.log('[retarget] bones updated:', updates);
+  }
+}
+
+
 
   // Subscribe to pose stream
   PoseBridge.on((frame) => {
@@ -544,6 +719,7 @@
       console.log("Data channel open");
     }
     skeletonChannel.onmessage = (ev) => {
+<<<<<<< HEAD
       const raw = JSON.parse(ev.data); // raw = [[x,y,z], ...]
       const data = raw["points"];
       // console.log(data);
@@ -568,6 +744,16 @@
       });
 
     };
+=======
+  try {
+    const raw = JSON.parse(ev.data);
+    const pts = raw.points || raw;   // support both {points:[...]} or [...]
+    updatePose33(pts, 'world'); // or 'world' depending on your data
+  } catch (e) {
+    console.error('pose msg parse error', e);
+  }
+};
+>>>>>>> d2ac8eddf8c7c7f0ee8daa36408146f27565b907
 
     // Gather ICE candidates
     const candidates = [];
